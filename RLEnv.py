@@ -46,6 +46,7 @@ class RLBilliard(gym.Env):
     )
 
     self.shot = None
+    self.shots = []  # Store multiple shots for continuous display
     self.cut_side = "STRAIGHT_IN"
     self.cut_angle = 0.0
     self.aim_angle_deg = 0.0
@@ -120,24 +121,44 @@ class RLBilliard(gym.Env):
 
     return observation, info
 
+  def _calculate_max_cut_angle_deg(self, white_pos, red_pos):
+    """Calculates the maximum angle deviation (in degrees) for tangent contact."""
+    d = np.hypot(red_pos[0] - white_pos[0], red_pos[1] - white_pos[1])
+
+    # Ball contact radius threshold
+    ratio = (2.0 * self.R) / d
+
+    # Clip ratio to [0.0, 1.0] to prevent numerical issues with arcsin
+    ratio = np.clip(ratio, 0.0, 1.0)
+
+    theta_max_rad = np.arcsin(ratio)
+    return np.rad2deg(theta_max_rad)
+
   def step(self, action):
 
     raw_angle = np.clip(action[0], -1.0, 1.0)
     raw_velocity = np.clip(action[1], -1.0, 1.0)
 
-    # Map raw_angle [-1, 1] -> [0.0, 6.0]
-    angle_magnitude = (raw_angle + 1.0) / 2.0 * 6.0
+    # Get current ball positions
+    red_pos = self.balls["red"].state.rvw[0][:2]
+    white_pos = self.balls["white"].state.rvw[0][:2]
 
+  # 1. Compute dynamic max angle for tangent contact
+    theta_max_deg = self._calculate_max_cut_angle_deg(white_pos, red_pos)
+
+    # Map raw_angle [-1, 1] -> [0.0, theta_max_deg]
+    angle_perturbation = (raw_angle + 1.0) / 2.0 * theta_max_deg
     # Map raw_velocity [-1, 1] -> [0.5, 3.0]
+    
     v0 = 0.5 + (raw_velocity + 1.0) / 2.0 * (3.0 - 0.5)
 
     # print(f"Raw Action: {action}, Mapped Angle: {angle_magnitude:.2f}°, Mapped Velocity: {v0:.2f} m/s")
 
     # Apply sign based on determined cut side
     if self.cut_side == "LEFT":
-      signed_control_angle = -angle_magnitude
+      signed_control_angle = -angle_perturbation
     elif self.cut_side == "RIGHT":
-      signed_control_angle = angle_magnitude
+      signed_control_angle = angle_perturbation
     else:  # STRAIGHT_IN
       signed_control_angle = 0.0
 
@@ -199,7 +220,11 @@ class RLBilliard(gym.Env):
     return observation, reward, terminated, truncated, info
 
   def render(self):
-    if self.shot is not None:
+    if self.shots:
+      for i, shot in enumerate(self.shots):
+        print(f"\nDisplaying Shot {i+1}...")
+        pt.show(shot)
+    elif self.shot is not None:
       pt.show(self.shot)
 
 
@@ -210,14 +235,29 @@ if __name__ == "__main__":
 
   print(f"Initial Cut Side: {info['cut_side']}")
 
-  # Sample action: [angle_magnitude = 2.5, velocity = 2.0]
-  action = np.random.uniform(-1.0, 1.0, size=(2,))
-  obs, reward, terminated, truncated, info = env.step(action)
+  # First shot with action[0] = -1
+  print("\n--- Shot 1: action[0] = -1 ---")
+  action1 = np.array([-1.0, 0.5], dtype=np.float32)
+  obs, reward, terminated, truncated, info = env.step(action1)
+  shot1 = env.shot
 
   print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
   print(f"Reward Received: {reward}")
   print(f"Red Pocketed in Top-Left: {info['red_pocketed_top_left']}")
   print(f"White Scratch: {info['white_pocketed']}")
 
-  # Render 3D viewer
+  # Reset for second shot
+  obs, info = env.reset()
+  print(f"\n--- Shot 2: action[0] = 1 ---")
+  action2 = np.array([1.0, 0.5], dtype=np.float32)
+  obs, reward, terminated, truncated, info = env.step(action2)
+  shot2 = env.shot
+
+  print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
+  print(f"Reward Received: {reward}")
+  print(f"Red Pocketed in Top-Left: {info['red_pocketed_top_left']}")
+  print(f"White Scratch: {info['white_pocketed']}")
+
+  # Store both shots and render them together
+  env.shots = [shot1, shot2]
   env.render()
