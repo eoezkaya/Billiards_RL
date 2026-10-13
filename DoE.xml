@@ -6,7 +6,7 @@
     <dimension>8</dimension>
     <number_of_function_evaluations>100</number_of_function_evaluations>
     <sampling_method>Latin Hypercube</sampling_method>
-    <working_directory>/Users/emreozkaya/Documents/RL_Experiments/BilliardsGame</working_directory>
+    <working_directory>/Users/emreozkaya/Documents/RL_Experiments/Billiards_RL</working_directory>
     <batch_size>1</batch_size>
     <number_of_inner_iterations>1</number_of_inner_iterations>
     <number_of_threads>1</number_of_threads>
@@ -69,10 +69,10 @@
   <objective_function>
     <name>NegativeSuccessRatio</name>
     <execution_location>local</execution_location>
-    <executable_filename>/Users/emreozkaya/Documents/RL_Experiments/BilliardsGame/train_top_left_pocket.py</executable_filename>
+    <executable_filename>/Users/emreozkaya/Documents/RL_Experiments/Billiards_RL/train_top_left_pocket.py</executable_filename>
     <training_data_filename>negative_success_ratio.csv</training_data_filename>
     <design_vector_filename>dv.txt</design_vector_filename>
     <output_filename>negative_success_ratio.txt</output_filename>
-    <working_directory>/Users/emreozkaya/Documents/RL_Experiments/BilliardsGame/WorkObjective</working_directory>
+    <working_directory>/Users/emreozkaya/Documents/RL_Experiments/Billiards_RL/WorkObjective</working_directory>
   </objective_function>
 </optimization_study>
