@@ -9,11 +9,11 @@ from RLEnv import RLBilliard
 
 
 def main():
-    model_path = "./models/ppo_billiards/best_model.zip"
+    model_path = "./best_model.zip"
 
     # Fallback to final model if best_model doesn't exist yet
     if not os.path.exists(model_path):
-        model_path = "./models/ppo_billiards/ppo_billiards_final.zip"
+        model_path = "./ppo_billiards_final.zip"
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -26,10 +26,10 @@ def main():
     # Initialize environment specifically for inference
     env = RLBilliard()
 
-    total_episodes = 20
+    total_episodes = 3
     successful_shots = 0
 
-    print("\n--- Starting Evaluation (20 Games) ---")
+    print("\n--- Starting Evaluation (3 Games) ---")
 
     for episode in range(1, total_episodes + 1):
         obs, info = env.reset()
@@ -40,7 +40,7 @@ def main():
         obs, reward, terminated, truncated, info = env.step(action)
 
         angle_mag, velocity = action[0], action[1]
-        is_success = info.get("red_pocketed_top_left", False) and not info.get(
+        is_success = info.get("red_pocketed_target", False) and not info.get(
             "white_pocketed", False
         )
 
@@ -56,6 +56,8 @@ def main():
 
         # Render 3D visualization window
         env.render()
+        
+        # Delay after viewing to keep ball positions visible longer
 
     env.close()
 

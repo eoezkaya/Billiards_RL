@@ -7,6 +7,10 @@ import numpy as np
 import pooltool as pt
 from gymnasium import spaces
 
+# ===== TARGET POCKET CONFIGURATION =====
+TARGET_POCKET = "top_right"  # Options: "top_left" or "top_right"
+# ========================================
+
 
 class RLBilliard(gym.Env):
   """Custom Gymnasium Environment for a 2-ball billiards pocketing task using pooltool."""
@@ -19,14 +23,25 @@ class RLBilliard(gym.Env):
     self.render_mode = render_mode
     self.table = pt.Table.default()
     self.R = 0.028575  # Standard ball radius in meters
+    self.target_pocket = TARGET_POCKET
 
-    # Identify Top-Left Pocket ID
-    self.top_left_pocket_id = min(
-        self.table.pockets.keys(),
-        key=lambda p_id: self.table.pockets[p_id].center[0] ** 2
-        + (self.table.l - self.table.pockets[p_id].center[1]) ** 2,
-    )
-    self.top_left_pocket = np.array([0.0, self.table.l])
+    # Identify Target Pocket ID based on configuration
+    if self.target_pocket == "top_left":
+      # Top-left: minimize x² + (l - y)²
+      self.target_pocket_id = min(
+          self.table.pockets.keys(),
+          key=lambda p_id: self.table.pockets[p_id].center[0] ** 2
+          + (self.table.l - self.table.pockets[p_id].center[1]) ** 2,
+      )
+      self.target_pocket_pos = np.array([0.0, self.table.l])
+    else:  # top_right
+      # Top-right: minimize (w - x)² + (l - y)²
+      self.target_pocket_id = min(
+          self.table.pockets.keys(),
+          key=lambda p_id: (self.table.w - self.table.pockets[p_id].center[0]) ** 2
+          + (self.table.l - self.table.pockets[p_id].center[1]) ** 2,
+      )
+      self.target_pocket_pos = np.array([self.table.w, self.table.l])
 
     # Action Space:
     # Action[0] = control_angle_magnitude in [0, 6] degrees
@@ -38,10 +53,10 @@ class RLBilliard(gym.Env):
         dtype=np.float32,
     )
     # Observation Space: (Matches normalized output in _get_obs)
-    # [red_x, red_y, white_x, white_y, dx_to_pocket, dy_to_pocket, cut_angle]
+    # [red_x, red_y, white_x, white_y, cut_angle]
     self.observation_space = spaces.Box(
-        low=np.array([0.0, 0.0, 0.0, 0.0, -1.0, -1.0, 0.0], dtype=np.float32),
-        high=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32),
+        low=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        high=np.array([1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32),
         dtype=np.float32,
     )
 
@@ -51,10 +66,10 @@ class RLBilliard(gym.Env):
     self.cut_angle = 0.0
     self.aim_angle_deg = 0.0
 
-  def _determine_cut_side(self, white_pos, red_pos, pocket_pos):
+  def _determine_cut_side(self, white_pos, red_pos):
     """Calculates cut side and cut angle between cue vector and pocket vector."""
     v_cue = np.array(red_pos) - np.array(white_pos)
-    v_pocket = np.array(pocket_pos) - np.array(red_pos)
+    v_pocket = self.target_pocket_pos - np.array(red_pos)
 
     cross_product = v_cue[0] * v_pocket[1] - v_cue[1] * v_pocket[0]
 
@@ -75,7 +90,6 @@ class RLBilliard(gym.Env):
   def _get_obs(self):
     red_pos = self.balls["red"].state.rvw[0][:2]
     white_pos = self.balls["white"].state.rvw[0][:2]
-    vec_pocket = self.top_left_pocket - red_pos
 
     return np.array(
         [
@@ -83,8 +97,6 @@ class RLBilliard(gym.Env):
             red_pos[1] / self.table.l,
             white_pos[0] / self.table.w,
             white_pos[1] / self.table.l,
-            vec_pocket[0] / self.table.w,
-            vec_pocket[1] / self.table.l,
             self.cut_angle / 180.0,
         ],
         dtype=np.float32,
@@ -113,7 +125,7 @@ class RLBilliard(gym.Env):
     self.aim_angle_deg = np.rad2deg(np.arctan2(dy_aim, dx_aim)) % 360
 
     self.cut_side, self.cut_angle = self._determine_cut_side(
-        (white_x, white_y), (red_x, red_y), self.top_left_pocket
+        (white_x, white_y), (red_x, red_y)
     )
 
     observation = self._get_obs()
@@ -186,10 +198,10 @@ class RLBilliard(gym.Env):
     # Check pocket conditions using event_type.has_pocket()
     events = getattr(self.shot, "events", []) or []
 
-    red_pocketed_top_left: bool = any(
+    red_pocketed_target: bool = any(
         event.event_type.has_pocket()
         and "red" in [agent.id for agent in event.agents]
-        and self.top_left_pocket_id in [agent.id for agent in event.agents]
+        and self.target_pocket_id in [agent.id for agent in event.agents]
         for event in events
     )
 
@@ -199,8 +211,8 @@ class RLBilliard(gym.Env):
         for event in events
     )
 
-    # Reward logic: +1 if red in top-left; 0 if both are pocketed or missed
-    if red_pocketed_top_left and not white_pocketed:
+    # Reward logic: +1 if red in target pocket; 0 if both are pocketed or missed
+    if red_pocketed_target and not white_pocketed:
       reward = 1.0
     else:
       reward = 0.0
@@ -210,7 +222,8 @@ class RLBilliard(gym.Env):
 
     observation = self._get_obs()
     info = {
-        "red_pocketed_top_left": red_pocketed_top_left,
+        "red_pocketed_target": red_pocketed_target,
+        "target_pocket": self.target_pocket,
         "white_pocketed": white_pocketed,
         "observation": observation,
         "signed_control_angle": signed_control_angle,
@@ -243,7 +256,7 @@ if __name__ == "__main__":
 
   print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
   print(f"Reward Received: {reward}")
-  print(f"Red Pocketed in Top-Left: {info['red_pocketed_top_left']}")
+  print(f"Red Pocketed in Target Pocket ({env.target_pocket}): {info['red_pocketed_target']}")
   print(f"White Scratch: {info['white_pocketed']}")
 
   # Reset for second shot
@@ -255,7 +268,7 @@ if __name__ == "__main__":
 
   print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
   print(f"Reward Received: {reward}")
-  print(f"Red Pocketed in Top-Left: {info['red_pocketed_top_left']}")
+  print(f"Red Pocketed in Target Pocket ({env.target_pocket}): {info['red_pocketed_target']}")
   print(f"White Scratch: {info['white_pocketed']}")
 
   # Store both shots and render them together

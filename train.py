@@ -5,9 +5,12 @@ import re
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-from RLEnv import RLBilliard
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+
+# ===== TARGET POCKET CONFIGURATION =====
+TARGET_POCKET = "top_right"  # Options: "top_left" or "top_right"
+# ========================================
 
 # Fixed environment worker count (Set by the user, excluded from dv.txt)
 NUM_ENVS = 8
@@ -135,7 +138,10 @@ def load_design_vector(file_path: str = "dv.txt") -> dict:
 
 def make_env(rank: int = 0, seed: int = 42):
   def _init():
-    env = RLBilliard()
+    import RLEnv
+    # Override the TARGET_POCKET in the RLEnv module
+    RLEnv.TARGET_POCKET = TARGET_POCKET
+    env = RLEnv.RLBilliard()
     env.reset(seed=seed + rank)
     return env
 
@@ -143,10 +149,14 @@ def make_env(rank: int = 0, seed: int = 42):
 
 
 def main():
+  print(f"\n========================================")
+  print(f"Training for TARGET_POCKET: {TARGET_POCKET}")
+  print(f"========================================\n")
+  
   # Load algorithmic hyperparameters from dv.txt
   hp = load_design_vector("dv.txt")
 
-  model_dir = "./models/ppo_billiards/"
+  model_dir = f"./models/ppo_billiards_{TARGET_POCKET}/"
   os.makedirs(model_dir, exist_ok=True)
 
   # Use the user-fixed NUM_ENVS
@@ -182,22 +192,25 @@ def main():
   )
   model.learn(total_timesteps=total_timesteps)
 
-  final_model_path = os.path.join(model_dir, "ppo_billiards_final")
+  final_model_path = os.path.join(model_dir, f"ppo_billiards_{TARGET_POCKET}_final")
   model.save(final_model_path)
   print("Training finished.")
 
   # --- 1,000 Episode Evaluation ---
   eval_episodes = 1000
   successful_shots = 0
-  test_env = RLBilliard()
+  
+  import RLEnv
+  RLEnv.TARGET_POCKET = TARGET_POCKET
+  test_env = RLEnv.RLBilliard()
 
-  print("\nStarting 1000-game evaluation post-training...")
+  print(f"\nStarting 1000-game evaluation post-training for {TARGET_POCKET}...")
   for episode in range(1, eval_episodes + 1):
     obs, info = test_env.reset(seed=10000 + episode)
     action, _states = model.predict(obs, deterministic=True)
     obs, reward, terminated, truncated, info = test_env.step(action)
 
-    is_success = info.get("red_pocketed_top_left", False) and not info.get(
+    is_success = info.get("red_pocketed_target", False) and not info.get(
         "white_pocketed", False
     )
     if is_success:
@@ -209,7 +222,7 @@ def main():
   success_ratio = successful_shots / eval_episodes
   neg_success_ratio = -success_ratio
 
-  out_file = "negative_success_ratio.txt"
+  out_file = f"negative_success_ratio_{TARGET_POCKET}.txt"
   with open(out_file, "w") as f:
     f.write(f"{neg_success_ratio:.6f}\n")
 
