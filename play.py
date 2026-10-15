@@ -7,13 +7,16 @@ from stable_baselines3 import PPO
 
 from RLEnv import RLBilliard
 
+# ===== TARGET POCKET CONFIGURATION =====
+TARGET_POCKET = "top_left"  # Options: "top_left" or "top_right"
+# ========================================
+
 
 def main():
-    model_path = "./best_model.zip"
-
-    # Fallback to final model if best_model doesn't exist yet
-    if not os.path.exists(model_path):
-        model_path = "./ppo_billiards_final.zip"
+    if(TARGET_POCKET == "top_left"):
+        model_path = "ppo_billiards_final_top_left.zip"
+    else:
+        model_path = "ppo_billiards_final_top_right.zip"
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -24,12 +27,12 @@ def main():
     model = PPO.load(model_path)
 
     # Initialize environment specifically for inference
-    env = RLBilliard()
+    env = RLBilliard(target_pocket=TARGET_POCKET)
 
-    total_episodes = 3
+    total_episodes = 40
     successful_shots = 0
 
-    print("\n--- Starting Evaluation (3 Games) ---")
+    print(f"\n--- Starting Evaluation ({total_episodes} Games) ---")
 
     for episode in range(1, total_episodes + 1):
         obs, info = env.reset()

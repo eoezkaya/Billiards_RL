@@ -7,23 +7,27 @@ import numpy as np
 import pooltool as pt
 from gymnasium import spaces
 
-# ===== TARGET POCKET CONFIGURATION =====
-TARGET_POCKET = "top_right"  # Options: "top_left" or "top_right"
-# ========================================
-
 
 class RLBilliard(gym.Env):
   """Custom Gymnasium Environment for a 2-ball billiards pocketing task using pooltool."""
 
   metadata = {"render_modes": ["human"]}
 
-  def __init__(self, render_mode=None):
+  def __init__(self, render_mode=None, target_pocket="top_right",
+               red_x_range=(0.2, 0.8), red_y_range=(1.25, 1.75),
+               white_x_range=(0.2, 0.8), white_y_range=(0.75, 1.25)):
     super().__init__()
 
     self.render_mode = render_mode
     self.table = pt.Table.default()
     self.R = 0.028575  # Standard ball radius in meters
-    self.target_pocket = TARGET_POCKET
+    self.target_pocket = target_pocket
+
+    # Ball placement area boundaries (parameterized)
+    self.red_x_range = red_x_range
+    self.red_y_range = red_y_range
+    self.white_x_range = white_x_range
+    self.white_y_range = white_y_range
 
     # Identify Target Pocket ID based on configuration
     if self.target_pocket == "top_left":
@@ -109,14 +113,14 @@ class RLBilliard(gym.Env):
     self.balls = pt.get_rack(pt.GameType.THREECUSHION, self.table)
     del self.balls["yellow"]
 
-    # 2. Sample Red Ball: x in [0.2, 0.6], y in [1.25, 1.75]
-    red_x = self.np_random.uniform(0.2, 0.6)
-    red_y = self.np_random.uniform(1.25, 1.75)
+    # 2. Sample Red Ball: x in red_x_range, y in red_y_range
+    red_x = self.np_random.uniform(self.red_x_range[0], self.red_x_range[1])
+    red_y = self.np_random.uniform(self.red_y_range[0], self.red_y_range[1])
     self.balls["red"].state.rvw[0] = [red_x, red_y, self.R]
 
-    # 3. Sample White Ball: x in [0.2, 0.8], y in [0.75, 1.25]
-    white_x = self.np_random.uniform(0.2, 0.8)
-    white_y = self.np_random.uniform(0.75, 1.25)
+    # 3. Sample White Ball: x in white_x_range, y in white_y_range
+    white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
+    white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
     self.balls["white"].state.rvw[0] = [white_x, white_y, self.R]
 
     # 4. Calculate aiming and cut side geometry
@@ -243,8 +247,58 @@ class RLBilliard(gym.Env):
 
 # --- Test Run ---
 if __name__ == "__main__":
+  import matplotlib.pyplot as plt
+  import matplotlib.patches as patches
+
   env = RLBilliard()
   obs, info = env.reset()
+
+  # Visualize table and ball placement areas
+  fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+
+  # Draw table (green)
+  table_rect = patches.Rectangle(
+      (0, 0), env.table.w, env.table.l,
+      linewidth=2, edgecolor='darkgreen', facecolor='green', alpha=0.6,
+      label='Table'
+  )
+  ax.add_patch(table_rect)
+
+  # Draw red ball placement area (red shadow)
+  red_width = env.red_x_range[1] - env.red_x_range[0]
+  red_height = env.red_y_range[1] - env.red_y_range[0]
+  red_area = patches.Rectangle(
+      (env.red_x_range[0], env.red_y_range[0]), red_width, red_height,
+      linewidth=2, edgecolor='darkred', facecolor='red', alpha=0.3,
+      label='Red Ball Area'
+  )
+  ax.add_patch(red_area)
+
+  # Draw white ball placement area (gray shadow)
+  white_width = env.white_x_range[1] - env.white_x_range[0]
+  white_height = env.white_y_range[1] - env.white_y_range[0]
+  white_area = patches.Rectangle(
+      (env.white_x_range[0], env.white_y_range[0]), white_width, white_height,
+      linewidth=2, edgecolor='darkgray', facecolor='gray', alpha=0.3,
+      label='White Ball Area'
+  )
+  ax.add_patch(white_area)
+
+  # Set axis properties
+  ax.set_xlim(-0.2, env.table.w + 0.2)
+  ax.set_ylim(-0.2, env.table.l + 0.2)
+  ax.set_aspect('equal')
+  ax.grid(True, alpha=0.3)
+  ax.legend(loc='upper right', fontsize=10)
+  ax.set_xlabel('Width (m)', fontsize=11)
+  ax.set_ylabel('Length (m)', fontsize=11)
+  ax.set_title('Billiards Table with Ball Placement Areas', fontsize=13, fontweight='bold')
+
+  # Save figure
+  plt.tight_layout()
+  plt.savefig('billiards_table_layout.png', dpi=150, bbox_inches='tight')
+  print("✓ Table layout saved to 'billiards_table_layout.png'")
+  plt.close()
 
   print(f"Initial Cut Side: {info['cut_side']}")
 

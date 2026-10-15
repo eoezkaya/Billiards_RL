@@ -139,9 +139,7 @@ def load_design_vector(file_path: str = "dv.txt") -> dict:
 def make_env(rank: int = 0, seed: int = 42):
   def _init():
     import RLEnv
-    # Override the TARGET_POCKET in the RLEnv module
-    RLEnv.TARGET_POCKET = TARGET_POCKET
-    env = RLEnv.RLBilliard()
+    env = RLEnv.RLBilliard(target_pocket=TARGET_POCKET)
     env.reset(seed=seed + rank)
     return env
 
@@ -201,8 +199,7 @@ def main():
   successful_shots = 0
   
   import RLEnv
-  RLEnv.TARGET_POCKET = TARGET_POCKET
-  test_env = RLEnv.RLBilliard()
+  test_env = RLEnv.RLBilliard(target_pocket=TARGET_POCKET)
 
   print(f"\nStarting 1000-game evaluation post-training for {TARGET_POCKET}...")
   for episode in range(1, eval_episodes + 1):
