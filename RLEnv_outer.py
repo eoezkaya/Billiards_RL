@@ -65,6 +65,26 @@ class RLBilliard(gym.Env):
     self.cut_angle = 0.0
     self.aim_angle_deg = 0.0
 
+  def _determine_cut_side(self, white_pos, red_pos):
+    """Calculates cut side and cut angle between cue vector and pocket vector."""
+    v_cue = np.array(red_pos) - np.array(white_pos)
+    v_pocket = self.target_pocket_pos - np.array(red_pos)
+
+    cross_product = v_cue[0] * v_pocket[1] - v_cue[1] * v_pocket[0]
+
+    unit_cue = v_cue / (np.linalg.norm(v_cue) + 1e-8)
+    unit_pocket = v_pocket / (np.linalg.norm(v_pocket) + 1e-8)
+    dot_product = np.clip(np.dot(unit_cue, unit_pocket), -1.0, 1.0)
+    cut_angle_deg = np.rad2deg(np.arccos(dot_product))
+
+    if np.abs(cross_product) < 1e-5:
+      side = "STRAIGHT_IN"
+    elif cross_product > 0:
+      side = "LEFT"  # Apply negative control angle
+    else:
+      side = "RIGHT"  # Apply positive control angle
+
+    return side, cut_angle_deg
 
   def _get_obs(self):
     red_pos = self.balls["red"].state.rvw[0][:2]
@@ -84,7 +104,6 @@ class RLBilliard(gym.Env):
   def _reset_random(self):
     """
     Internal method to randomly initialize ball positions.
-    Used by reset to generate random configurations.
     
     Returns:
         tuple: (observation, info)
@@ -121,6 +140,8 @@ class RLBilliard(gym.Env):
     """
     Reset the environment to a new episode with random ball positions.
     
+    Generates a random table configuration.
+    
     Returns:
         tuple: (observation, info) where observation is the initial state
     """
@@ -128,7 +149,7 @@ class RLBilliard(gym.Env):
 
     # Generate random ball positions
     obs, info = self._reset_random()
-    
+
     return obs, info
 
   def _calculate_max_cut_angle_deg(self, white_pos, red_pos):
@@ -243,49 +264,6 @@ class RLBilliard(gym.Env):
     
     return total_difficulty
 
-  def reset_to_difficulty(self, target_difficulty, max_attempts=1000):
-    """
-    Generates a random table setup with difficulty at most the target level.
-    Keeps generating random positions until one with acceptable difficulty is found.
-    
-    Args:
-        target_difficulty (float): Maximum difficulty level (0-100)
-        max_attempts (int): Maximum number of attempts before giving up (default: 1000)
-    
-    Returns:
-        tuple: (observation, info) from reset(), or None if max_attempts exceeded
-        
-    Raises:
-        ValueError: If target_difficulty is not in range [0, 100]
-    """
-    if not (0.0 <= target_difficulty <= 100.0):
-      raise ValueError(f"target_difficulty must be in range [0, 100], got {target_difficulty}")
-    
-    attempts = 0
-    while attempts < max_attempts:
-      # Generate random ball positions
-      obs, info = self._reset_random()
-      
-      # Calculate difficulty of this configuration
-      position_difficulty = self.calculate_position_difficulty()
-      
-      # If difficulty meets target, return this configuration
-      if position_difficulty <= target_difficulty:
-#        if self.verbose:
-#          print(f"✓ Found suitable position at difficulty {position_difficulty:.1f}/100 (target: {target_difficulty}/100)")
-        info["position_difficulty"] = position_difficulty
-        return obs, info
-      
-      attempts += 1
-    
-    # If we couldn't find suitable position, log warning and return last attempt
-    if self.verbose:
-      print(f"⚠ Could not find position with difficulty <= {target_difficulty}/100 after {max_attempts} attempts")
-      print(f"  Returning position with difficulty {position_difficulty:.1f}/100 (closest found)")
-    info["position_difficulty"] = position_difficulty
-    return obs, info
-
-
 
   def step(self, action):
 
@@ -387,54 +365,6 @@ class RLBilliard(gym.Env):
     """
     visualize_balls(self, filename)
 
-  def generate_episode_dataset(self, num_episodes=1000, output_dir="episode_visualizations"):
-    """
-    Generates multiple episodes and creates visualizations for each.
-    Saves all images to a directory with difficulty scores.
-    
-    Args:
-        num_episodes (int): Number of episodes to generate (default: 1000)
-        output_dir (str): Directory name to store all visualizations
-    """
-    import os
-    
-    # Create output directory if it doesn't exist
-    if not os.path.exists(output_dir):
-      os.makedirs(output_dir)
-      if self.verbose:
-        print(f"Created directory: {output_dir}")
-    
-    if self.verbose:
-      print(f"\nGenerating {num_episodes} episode visualizations...")
-      print(f"Saving to: {output_dir}/\n")
-    
-    difficulties = []
-    
-    for episode in range(num_episodes):
-      # Reset environment for new episode
-      obs, info = self.reset()
-      
-      # Calculate difficulty for this episode
-      difficulty = self.calculate_position_difficulty()
-      difficulties.append(difficulty)
-      
-      # Generate filename with episode number and difficulty
-      filename = os.path.join(output_dir, f"episode_{episode:04d}_diff_{difficulty:05.1f}.png")
-      
-      # Save visualization
-      self.visualize_balls(filename)
-      
-      # Print progress every 100 episodes
-      if (episode + 1) % 100 == 0 and self.verbose:
-        print(f"  Generated {episode + 1}/{num_episodes} episodes")
-    
-    # Print summary statistics
-    if self.verbose:
-      print(f"\n✓ Successfully generated {num_episodes} episodes!")
-      print(f"  Average difficulty: {np.mean(difficulties):.1f}/100")
-      print(f"  Min difficulty: {np.min(difficulties):.1f}/100")
-      print(f"  Max difficulty: {np.max(difficulties):.1f}/100")
-      print(f"  All images saved to: {output_dir}/")
 
   def render(self):
     if self.shots:
@@ -445,12 +375,64 @@ class RLBilliard(gym.Env):
     elif self.shot is not None:
       pt.show(self.shot)
 
+  def test_simple_shot(self, action=None, verbose=True):
+    """
+    Test method: Create a random table, play an action, and render it.
+    
+    Args:
+        action (np.ndarray, optional): Action to execute. If None, uses [0.0, 0.5]
+        verbose (bool): Whether to print debug information
+    
+    Returns:
+        tuple: (observation, reward, terminated, truncated, info)
+    """
+    if action is None:
+      action = np.array([0.0, 0.5])
+    
+    print("=" * 70)
+    print("Test: Simple Shot (Random Table + Action + Render)")
+    print("=" * 70)
+    
+    # Reset to random table
+    print("\n1. Resetting environment to random table...")
+    obs, info = self.reset()
+    print(f"   ✓ Reset successful")
+    print(f"   - Observation shape: {obs.shape}")
+    print(f"   - Cut side: {info.get('cut_side', 'N/A')}")
+    print(f"   - Cut angle: {info.get('cut_angle', 'N/A'):.2f}°")
+    
+    # Execute action
+    print(f"\n2. Executing action: {action}")
+    obs, reward, terminated, truncated, info = self.step(action)
+    print(f"   ✓ Step successful")
+    print(f"   - Reward: {reward}")
+    print(f"   - Red pocketed (target): {info.get('red_pocketed_target', 'N/A')}")
+    print(f"   - White pocketed: {info.get('white_pocketed', 'N/A')}")
+    print(f"   - Shot counter: {info.get('shot_counter', 'N/A')}")
+    print(f"   - Position difficulty: {info.get('position_difficulty', 'N/A'):.2f}")
+    
+    # Render
+    print(f"\n3. Rendering shot...")
+    try:
+      self.render()
+      print(f"   ✓ Render successful")
+    except Exception as e:
+      print(f"   ✗ Render failed: {e}")
+    
+    print("\n" + "=" * 70)
+    print("Test Complete")
+    print("=" * 70)
+    
+    return obs, reward, terminated, truncated, info
+
 
 # --- Test Run ---
 if __name__ == "__main__":
-  from billiards_tests import test_initial, test_difficulty
+  import numpy as np
   
-  env = RLBilliard()
-#  test_initial(env)
-  test_difficulty(env)
+  env = RLBilliard(verbose=True)
+  
+  # Run the simple shot test
+  action = np.array([0.0, 0.5])
+  env.test_simple_shot(action=action)
 

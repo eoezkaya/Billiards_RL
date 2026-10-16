@@ -51,6 +51,7 @@ def test_difficulty(env, target_difficulty=None, action=None, output_dir="diffic
         # Set curriculum to target difficulty for this test
         env.use_curriculum = False
         env.fixed_difficulty = target_difficulty
+        env.current_curriculum_difficulty = target_difficulty
         
     print(f"\n{'='*60}")
     print(f"Testing Curriculum Difficulty Level: {target_difficulty}/100")

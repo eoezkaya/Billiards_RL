@@ -8,10 +8,6 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-# ===== TARGET POCKET CONFIGURATION =====
-TARGET_POCKET = "top_right"  # Options: "top_left" or "top_right"
-# ========================================
-
 # Fixed environment worker count (Set by the user, excluded from dv.txt)
 NUM_ENVS = 8
 
@@ -139,7 +135,7 @@ def load_design_vector(file_path: str = "dv.txt") -> dict:
 def make_env(rank: int = 0, seed: int = 42):
   def _init():
     import RLEnv
-    env = RLEnv.RLBilliard(target_pocket=TARGET_POCKET)
+    env = RLEnv.RLBilliard(verbose=False)
     env.reset(seed=seed + rank)
     return env
 
@@ -148,13 +144,13 @@ def make_env(rank: int = 0, seed: int = 42):
 
 def main():
   print(f"\n========================================")
-  print(f"Training for TARGET_POCKET: {TARGET_POCKET}")
+  print(f"Training PPO Billiards RL Agent")
   print(f"========================================\n")
   
   # Load algorithmic hyperparameters from dv.txt
   hp = load_design_vector("dv.txt")
 
-  model_dir = f"./models/ppo_billiards_{TARGET_POCKET}/"
+  model_dir = "./models/ppo_billiards/"
   os.makedirs(model_dir, exist_ok=True)
 
   # Use the user-fixed NUM_ENVS
@@ -190,7 +186,7 @@ def main():
   )
   model.learn(total_timesteps=total_timesteps)
 
-  final_model_path = os.path.join(model_dir, f"ppo_billiards_{TARGET_POCKET}_final")
+  final_model_path = os.path.join(model_dir, "ppo_billiards_final")
   model.save(final_model_path)
   print("Training finished.")
 
@@ -199,9 +195,9 @@ def main():
   successful_shots = 0
   
   import RLEnv
-  test_env = RLEnv.RLBilliard(target_pocket=TARGET_POCKET)
+  test_env = RLEnv.RLBilliard(use_curriculum=False, fixed_difficulty=100)
 
-  print(f"\nStarting 1000-game evaluation post-training for {TARGET_POCKET}...")
+  print(f"\nStarting 1000-game evaluation post-training...")
   for episode in range(1, eval_episodes + 1):
     obs, info = test_env.reset(seed=10000 + episode)
     action, _states = model.predict(obs, deterministic=True)
@@ -219,7 +215,7 @@ def main():
   success_ratio = successful_shots / eval_episodes
   neg_success_ratio = -success_ratio
 
-  out_file = f"negative_success_ratio_{TARGET_POCKET}.txt"
+  out_file = "negative_success_ratio.txt"
   with open(out_file, "w") as f:
     f.write(f"{neg_success_ratio:.6f}\n")
 

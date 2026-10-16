@@ -581,5 +581,5 @@ if __name__ == "__main__":
   
   env = RLBilliard()
 #  test_initial(env)
-  test_difficulty(env)
+  test_difficulty(env, target_difficulty=50)
 
