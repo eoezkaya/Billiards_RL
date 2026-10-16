@@ -11,19 +11,24 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 
-def test_difficulty(env, target_difficulty, action=None, output_dir="difficulty_tests"):
+def test_difficulty(env, target_difficulty=None, action=None, output_dir="difficulty_tests"):
     """
-    Generates a table at a given difficulty, visualizes it, and executes a shot.
+    Tests the environment with a specific curriculum difficulty level.
+    
+    Configures the environment's curriculum to target a specific difficulty,
+    then performs a reset and executes a shot. This tests the curriculum-based
+    position generation through the reset() method.
     
     Args:
         env (RLBilliard): The environment instance
-        target_difficulty (float): Target maximum difficulty level (0-100)
+        target_difficulty (float, optional): Curriculum difficulty target (0-100).
+                                           If None, uses current curriculum difficulty.
         action (np.ndarray, optional): Action to execute. If None, uses [0.0, 0.5]
         output_dir (str): Directory to save visualizations (default: "difficulty_tests")
     
     Returns:
         dict: Information about the test including:
-            - 'target_difficulty': requested difficulty
+            - 'target_difficulty': requested curriculum difficulty
             - 'actual_difficulty': actual difficulty of generated position
             - 'red_angle': red angle of the position
             - 'action': action executed
@@ -39,12 +44,20 @@ def test_difficulty(env, target_difficulty, action=None, output_dir="difficulty_
     if action is None:
         action = np.array([0.0, 0.5], dtype=np.float32)
     
+    # Use current curriculum difficulty if target not specified
+    if target_difficulty is None:
+        target_difficulty = env.current_curriculum_difficulty
+    else:
+        # Set curriculum to target difficulty for this test
+        env.use_curriculum = False
+        env.fixed_difficulty = target_difficulty
+        
     print(f"\n{'='*60}")
-    print(f"Testing Difficulty Level: {target_difficulty}/100")
+    print(f"Testing Curriculum Difficulty Level: {target_difficulty}/100")
     print(f"{'='*60}")
     
-    # Generate table at target difficulty
-    obs, info = env.reset_to_difficulty(target_difficulty, max_attempts=100)
+    # Generate table using reset() which uses current curriculum difficulty
+    obs, info = env.reset()
     actual_difficulty = env.calculate_position_difficulty()
     
     # Get red angle for reference
@@ -59,7 +72,8 @@ def test_difficulty(env, target_difficulty, action=None, output_dir="difficulty_
     env.visualize_balls(filename_init)
     print(f"\n✓ Initial position saved: {filename_init}")
     print(f"  Red angle: {red_angle:.1f}°")
-    print(f"  Difficulty: {actual_difficulty:.1f}/100")
+    print(f"  Curriculum target: {target_difficulty:.1f}/100")
+    print(f"  Actual position difficulty: {actual_difficulty:.1f}/100")
     
     # Execute the shot
     print(f"\nExecuting shot with action: {action}")
