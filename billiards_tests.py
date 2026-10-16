@@ -230,10 +230,145 @@ def test_initial(env):
     print("="*60 + "\n")
 
 
+def test_position_difficulty(env, target_pocket='lt', verbose=True):
+    """
+    Test method for calculate_position_difficulty().
+    
+    Generates a single random table configuration and calculates the difficulty
+    for the specified target pocket. Displays detailed results.
+    
+    Args:
+        env (RLBilliard): The environment instance
+        target_pocket (str): Target pocket ID ('lt', 'rt', 'lc', 'rc', 'lb', 'rb').
+                           Default is 'lt' (top-left)
+        verbose (bool): Whether to print detailed information (default: True)
+    
+    Returns:
+        dict: Dictionary containing position data and difficulty information
+    """
+    if verbose:
+        print("=" * 70)
+        print("Test: Position Difficulty Calculation")
+        print("=" * 70)
+        print(f"\nGenerating random table position for pocket '{target_pocket}'...\n")
+    
+    # Reset to generate a random table
+    obs, info = env.reset()
+    
+    # Get ball positions
+    red_pos = env.balls["red"].state.rvw[0][:2]
+    white_pos = env.balls["white"].state.rvw[0][:2]
+    
+    # Calculate difficulty for the specified pocket
+    difficulty = env.calculate_position_difficulty(target_pocket_id=target_pocket)
+    
+    # Prepare results
+    results = {
+        'target_pocket': target_pocket,
+        'red_pos': red_pos,
+        'white_pos': white_pos,
+        'difficulty': difficulty,
+        'cut_side': info.get('cut_side', 'N/A')
+    }
+    
+    if verbose:
+        print("Position Data:")
+        print("-" * 70)
+        print(f"  Red ball    : ({red_pos[0]:.3f}, {red_pos[1]:.3f})")
+        print(f"  White ball  : ({white_pos[0]:.3f}, {white_pos[1]:.3f})")
+        print(f"  Cut side    : {info.get('cut_side', 'N/A')}")
+        print()
+        print("Difficulty Results:")
+        print("-" * 70)
+        print(f"  Target pocket : {target_pocket}")
+        print(f"  Difficulty    : {difficulty:6.2f}/100")
+        print()
+        print("=" * 70 + "\n")
+    
+    return results
+
+
+def test_calculate_position_difficulty_with_visualization(env, verbose=True):
+    """
+    Test calculate_position_difficulty() with visualization for multiple pockets.
+    
+    Generates a single random table position and visualizes the difficulty calculation
+    for both top-left (lt) and top-right (rt) pockets using the visualize parameter.
+    
+    Args:
+        env (RLBilliard): The environment instance
+        verbose (bool): Whether to print detailed information (default: True)
+    
+    Returns:
+        dict: Dictionary containing difficulty results for both pockets
+    """
+    if verbose:
+        print("=" * 70)
+        print("Test: calculate_position_difficulty() with Visualization")
+        print("=" * 70)
+        print("\nGenerating random table position...\n")
+    
+    # Generate a single random table position
+    obs, info = env.reset()
+    
+    # Get ball positions
+    red_pos = env.balls["red"].state.rvw[0][:2]
+    white_pos = env.balls["white"].state.rvw[0][:2]
+    cut_side = info.get('cut_side', 'N/A')
+    
+    if verbose:
+        print("Position Data:")
+        print("-" * 70)
+        print(f"  Red ball    : ({red_pos[0]:.3f}, {red_pos[1]:.3f})")
+        print(f"  White ball  : ({white_pos[0]:.3f}, {white_pos[1]:.3f})")
+        print(f"  Cut side    : {cut_side}")
+        print()
+    
+    # Test Top-Left Pocket (lt) with visualization
+    if verbose:
+        print("Calculating difficulty for Top-Left (lt) pocket with visualization...")
+    difficulty_lt = env.calculate_position_difficulty(target_pocket_id='lt', visualize=True)
+    
+    if verbose:
+        print(f"  ✓ Top-Left difficulty: {difficulty_lt:.2f}/100")
+        print()
+    
+    # Test Top-Right Pocket (rt) with visualization
+    if verbose:
+        print("Calculating difficulty for Top-Right (rt) pocket with visualization...")
+    difficulty_rt = env.calculate_position_difficulty(target_pocket_id='rt', visualize=True)
+    
+    if verbose:
+        print(f"  ✓ Top-Right difficulty: {difficulty_rt:.2f}/100")
+        print()
+    
+    # Prepare results
+    results = {
+        'red_pos': red_pos,
+        'white_pos': white_pos,
+        'cut_side': cut_side,
+        'difficulty_lt': difficulty_lt,
+        'difficulty_rt': difficulty_rt,
+        'difference': abs(difficulty_lt - difficulty_rt)
+    }
+    
+    if verbose:
+        print("=" * 70)
+        print("Results Summary:")
+        print("=" * 70)
+        print(f"  Top-Left (lt) difficulty   : {difficulty_lt:6.2f}/100")
+        print(f"  Top-Right (rt) difficulty  : {difficulty_rt:6.2f}/100")
+        print(f"  Difference                 : {results['difference']:6.2f}/100")
+        print()
+        print("✓ Test completed successfully!")
+        print("=" * 70 + "\n")
+    
+    return results
+
+
 if __name__ == "__main__":
     from RLEnv import RLBilliard
     
     print("\nRunning billiards test suite...\n")
     
-    env = RLBilliard()
-    test_initial(env)
+    env = RLBilliard(verbose=False)

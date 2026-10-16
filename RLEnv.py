@@ -258,7 +258,7 @@ class RLBilliard(gym.Env):
     
     return angle_between_deg
 
-  def calculate_position_difficulty(self):
+  def calculate_position_difficulty(self, target_pocket_id=None, visualize=False):
     """
     Calculates the difficulty of the current position on a scale of 0-100.
     
@@ -267,13 +267,23 @@ class RLBilliard(gym.Env):
        0° = best angle (straight shot), 90° = worst angle (perpendicular)
     2. Distance to red ball: Closer distances are easier, farther distances are harder
     
+    Args:
+        target_pocket_id (str, optional): Pocket ID to calculate difficulty for.
+                                         If None, uses self.target_pocket_id (top-left)
+        visualize (bool, optional): If True, displays the positions and triangle visualization.
+                                   Default is False.
+    
     Returns:
         float: Difficulty score between 0 (easiest) and 100 (hardest)
     """
+    # Use default target pocket if not specified
+    if target_pocket_id is None:
+      target_pocket_id = self.target_pocket_id
+    
     # Get current ball positions and pocket center
     red_pos = self.balls["red"].state.rvw[0][:2]
     white_pos = self.balls["white"].state.rvw[0][:2]
-    pocket_center = self.table.pockets[self.target_pocket_id].center
+    pocket_center = self.table.pockets[target_pocket_id].center
     pocket_center = np.array([float(pocket_center[0]), float(pocket_center[1])])
     
     # Calculate red angle (pocket->red vs red->white)
@@ -297,6 +307,11 @@ class RLBilliard(gym.Env):
     
     # Clip to 0-100 range
     total_difficulty = np.clip(total_difficulty, 0.0, 100.0)
+    
+    # Display visualization if requested
+    if visualize:
+      from billiards_visualizer import visualize_billiards_position
+      visualize_billiards_position(self, red_angle, total_difficulty, target_pocket_id=target_pocket_id)
     
     return total_difficulty
 
@@ -577,9 +592,12 @@ class RLBilliard(gym.Env):
 
 # --- Test Run ---
 if __name__ == "__main__":
-  from billiards_tests import test_initial, test_difficulty
+  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization
   
   env = RLBilliard()
 #  test_initial(env)
-  test_difficulty(env, target_difficulty=50)
+#  test_difficulty(env, target_difficulty=50)
+#  test_position_difficulty(env, target_pocket='lt')
+  test_calculate_position_difficulty_with_visualization(env)
+  
 
