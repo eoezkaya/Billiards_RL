@@ -410,8 +410,8 @@ class RLBilliard(gym.Env):
       
       # If difficulty meets target, return this configuration
       if position_difficulty <= target_difficulty:
-#        if self.verbose:
-#          print(f"✓ Found suitable position at difficulty {position_difficulty:.1f}/100 (target: {target_difficulty}/100)")
+        if self.verbose:
+          print(f"✓ Found suitable position at difficulty {position_difficulty:.1f}/100 (target: {target_difficulty}/100)")
         info["position_difficulty"] = position_difficulty
         info["current_curriculum_difficulty"] = self.current_curriculum_difficulty
         return obs, info
@@ -594,7 +594,7 @@ class RLBilliard(gym.Env):
 if __name__ == "__main__":
   from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization
   
-  env = RLBilliard()
+  env = RLBilliard(use_curriculum=False, verbose=True)
 #  test_initial(env)
 #  test_difficulty(env, target_difficulty=50)
 #  test_position_difficulty(env, target_pocket='lt')

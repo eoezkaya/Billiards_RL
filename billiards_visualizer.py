@@ -58,12 +58,12 @@ def calculate_angle_between_vectors(pos1, pos2, pos3):
   return angle_between_deg
 
 
-def visualize_billiards_position(env, red_angle_deg, position_difficulty, filename=None, target_pocket_id=None):
+def visualize_billiards_position(env, red_angle_deg, position_difficulty, filename=None, target_pocket_id=None, show_comparison=False):
   """
   Draws the ball positions on the table as an image.
-  Shows the green table, white and red balls, and two triangles:
+  Shows the green table, white and red balls, and triangle(s):
   - Triangle 1: pocket->red->white (target pocket, shaded blue)
-  - Triangle 2: pocket->red->white (top-right pocket, shaded orange)
+  - Triangle 2 (optional): pocket->red->white (comparison pocket, shaded orange, dashed lines)
   Displays the red angles and position difficulty score.
   
   Args:
@@ -73,6 +73,7 @@ def visualize_billiards_position(env, red_angle_deg, position_difficulty, filena
       filename (str, optional): If provided, saves the image to this file.
                                 Otherwise displays the plot.
       target_pocket_id (str, optional): Pocket ID to visualize for. If None, uses env.target_pocket_id.
+      show_comparison (bool, optional): If True, shows comparison triangle (top-right pocket). Default is False.
   """
   if target_pocket_id is None:
     target_pocket_id = env.target_pocket_id
@@ -110,15 +111,15 @@ def visualize_billiards_position(env, red_angle_deg, position_difficulty, filena
   pocket_center = env.table.pockets[target_pocket_id].center
   target_pocket_center = np.array([float(pocket_center[0]), float(pocket_center[1])])
   
-  # Get top-right pocket center for comparison
-  # Find the pocket closest to the top-right corner (max_x, max_y)
-  top_right_corner = np.array([env.table.w, env.table.l])
-  top_right_pocket = min(env.table.pockets.values(), 
-                         key=lambda p: np.linalg.norm(np.array([p.center[0], p.center[1]]) - top_right_corner))
-  top_right_pocket_center = np.array([float(top_right_pocket.center[0]), float(top_right_pocket.center[1])])
-  
-  # Calculate angle for top-right pocket
-  top_right_angle_deg = env._calculate_red_angle(white_pos, red_pos, top_right_pocket_center)
+  # Get top-right pocket center for comparison (only if needed)
+  top_right_pocket_center = None
+  top_right_angle_deg = None
+  if show_comparison:
+    top_right_corner = np.array([env.table.w, env.table.l])
+    top_right_pocket = min(env.table.pockets.values(), 
+                           key=lambda p: np.linalg.norm(np.array([p.center[0], p.center[1]]) - top_right_corner))
+    top_right_pocket_center = np.array([float(top_right_pocket.center[0]), float(top_right_pocket.center[1])])
+    top_right_angle_deg = env._calculate_red_angle(white_pos, red_pos, top_right_pocket_center)
   
   # === DRAW TRIANGLE 1 (Target Pocket) ===
   triangle_points_1 = [
@@ -143,40 +144,42 @@ def visualize_billiards_position(env, red_angle_deg, position_difficulty, filena
   ax.plot([red_pos[0], white_pos[0]], [red_pos[1], white_pos[1]], 
               'b-', linewidth=2.5, alpha=0.8)
   
-  # === DRAW TRIANGLE 2 (Top-Right Pocket - for comparison) ===
-  triangle_points_2 = [
-      (float(red_pos[0]), float(red_pos[1])),
-      (float(white_pos[0]), float(white_pos[1])),
-      (float(top_right_pocket_center[0]), float(top_right_pocket_center[1]))
-  ]
-  triangle_2 = patches.Polygon(
-      triangle_points_2,
-      closed=True, edgecolor='darkorange', facecolor='orange', alpha=0.3,
-      linewidth=2
-  )
-  ax.add_patch(triangle_2)
-  
-  # Mark the top-right pocket center
-  ax.plot(top_right_pocket_center[0], top_right_pocket_center[1], 'o', 
-              color='darkorange', markersize=15, label='Top-Right Pocket')
-  
-  # Draw lines for top-right pocket
-  ax.plot([top_right_pocket_center[0], red_pos[0]], [top_right_pocket_center[1], red_pos[1]], 
-              color='orange', linewidth=2.5, alpha=0.8, linestyle='--')
-  ax.plot([red_pos[0], white_pos[0]], [red_pos[1], white_pos[1]], 
-              color='orange', linewidth=2.5, alpha=0.8, linestyle='--')
+  # === DRAW TRIANGLE 2 (Comparison Pocket - only if show_comparison=True) ===
+  if show_comparison:
+    triangle_points_2 = [
+        (float(red_pos[0]), float(red_pos[1])),
+        (float(white_pos[0]), float(white_pos[1])),
+        (float(top_right_pocket_center[0]), float(top_right_pocket_center[1]))
+    ]
+    triangle_2 = patches.Polygon(
+        triangle_points_2,
+        closed=True, edgecolor='darkorange', facecolor='orange', alpha=0.3,
+        linewidth=2
+    )
+    ax.add_patch(triangle_2)
+    
+    # Mark the top-right pocket center
+    ax.plot(top_right_pocket_center[0], top_right_pocket_center[1], 'o', 
+                color='darkorange', markersize=15, label='Comparison Pocket')
+    
+    # Draw lines for top-right pocket
+    ax.plot([top_right_pocket_center[0], red_pos[0]], [top_right_pocket_center[1], red_pos[1]], 
+                color='orange', linewidth=2.5, alpha=0.8, linestyle='--')
+    ax.plot([red_pos[0], white_pos[0]], [red_pos[1], white_pos[1]], 
+                color='orange', linewidth=2.5, alpha=0.8, linestyle='--')
   
   # Add angle text for target pocket
   mid_x_1 = red_pos[0] + 0.12 * np.cos(np.radians((np.rad2deg(np.arctan2(target_pocket_center[1] - red_pos[1], target_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
   mid_y_1 = red_pos[1] + 0.12 * np.sin(np.radians((np.rad2deg(np.arctan2(target_pocket_center[1] - red_pos[1], target_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
-  ax.text(mid_x_1 - 0.15, mid_y_1, f'Target\n{red_angle_deg:.1f}°', fontsize=12, fontweight='bold', 
+  ax.text(mid_x_1 - 0.15, mid_y_1, f'{target_pocket_id.upper()}\n{red_angle_deg:.1f}°', fontsize=12, fontweight='bold', 
               bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
   
-  # Add angle text for top-right pocket
-  mid_x_2 = red_pos[0] + 0.12 * np.cos(np.radians((np.rad2deg(np.arctan2(top_right_pocket_center[1] - red_pos[1], top_right_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
-  mid_y_2 = red_pos[1] + 0.12 * np.sin(np.radians((np.rad2deg(np.arctan2(top_right_pocket_center[1] - red_pos[1], top_right_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
-  ax.text(mid_x_2 + 0.15, mid_y_2, f'Top-Right\n{top_right_angle_deg:.1f}°', fontsize=12, fontweight='bold', 
-              bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+  # Add angle text for comparison pocket (only if shown)
+  if show_comparison:
+    mid_x_2 = red_pos[0] + 0.12 * np.cos(np.radians((np.rad2deg(np.arctan2(top_right_pocket_center[1] - red_pos[1], top_right_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
+    mid_y_2 = red_pos[1] + 0.12 * np.sin(np.radians((np.rad2deg(np.arctan2(top_right_pocket_center[1] - red_pos[1], top_right_pocket_center[0] - red_pos[0])) + np.rad2deg(np.arctan2(white_pos[1] - red_pos[1], white_pos[0] - red_pos[0]))) / 2))
+    ax.text(mid_x_2 + 0.15, mid_y_2, f'Comparison\n{top_right_angle_deg:.1f}°', fontsize=12, fontweight='bold', 
+                bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
   
   # Add difficulty text box in upper right corner
   ax.text(0.98, 0.98, f'Difficulty: {position_difficulty:.1f}/100', 
@@ -190,8 +193,14 @@ def visualize_billiards_position(env, red_angle_deg, position_difficulty, filena
   ax.set_aspect('equal')
   ax.set_xlabel('Width (m)', fontsize=11)
   ax.set_ylabel('Length (m)', fontsize=11)
-  ax.set_title(f'Billiards Table - Multiple Pocket Views\nTarget ({target_pocket_id}): {red_angle_deg:.1f}° | Alternative (Top-Right): {top_right_angle_deg:.1f}° | Difficulty: {position_difficulty:.1f}/100', 
-               fontsize=12, fontweight='bold')
+  
+  # Create title based on show_comparison flag
+  if show_comparison:
+    title = f'Billiards Table - Multiple Pocket Views\nTarget ({target_pocket_id}): {red_angle_deg:.1f}° | Comparison: {top_right_angle_deg:.1f}° | Difficulty: {position_difficulty:.1f}/100'
+  else:
+    title = f'Billiards Table - Target Pocket ({target_pocket_id})\nAngle: {red_angle_deg:.1f}° | Difficulty: {position_difficulty:.1f}/100'
+  
+  ax.set_title(title, fontsize=12, fontweight='bold')
   ax.grid(True, alpha=0.3)
   ax.legend(loc='lower left', fontsize=10)
   
