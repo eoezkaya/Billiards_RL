@@ -135,7 +135,7 @@ def load_design_vector(file_path: str = "dv.txt") -> dict:
 def make_env(rank: int = 0, seed: int = 42):
   def _init():
     import RLEnv
-    env = RLEnv.RLBilliard(verbose=False)
+    env = RLEnv.RLBilliard(verbose=True, target_pocket_id='rt')
     env.reset(seed=seed + rank)
     return env
 

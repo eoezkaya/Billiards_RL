@@ -366,6 +366,203 @@ def test_calculate_position_difficulty_with_visualization(env, verbose=True):
     return results
 
 
+def test_transform_obs_for_rt_pocket(verbose=True):
+    """
+    Test the observation transformation for right-top pocket.
+    
+    Generates a random table position and visualizes:
+    1. Original table with ball positions (LT orientation)
+    2. Transformed table with reflected ball positions (RT orientation)
+    
+    This demonstrates how the symmetry transformation converts an RT shot
+    into an LT-equivalent shot that the model can understand.
+    
+    Args:
+        verbose (bool): If True, prints detailed output. Default is True.
+    
+    Returns:
+        dict: Test results including original obs, transformed obs, and comparison
+    """
+    from RLEnv import RLBilliard
+    from play_top_left_and_right import transform_obs_for_rt_pocket
+    
+    print("\n" + "=" * 70)
+    print("Test: Observation Transformation for Right-Top Pocket")
+    print("=" * 70)
+    
+    # Create environment and generate random position
+    env = RLBilliard(verbose=False)
+    obs, _ = env.reset()
+    print(obs)
+    
+    # Get ball positions from observation
+    red_x_orig = obs[0]
+    red_y_orig = obs[1]
+    white_x_orig = obs[2]
+    white_y_orig = obs[3]
+    
+    if verbose:
+        print("\nOriginal Table (LT Orientation):")
+        print("-" * 70)
+        print(f"  Red ball   : ({red_x_orig:.3f}, {red_y_orig:.3f})")
+        print(f"  White ball : ({white_x_orig:.3f}, {white_y_orig:.3f})")
+    
+    # Transform observation for RT pocket
+    obs_transformed = transform_obs_for_rt_pocket(obs, env)
+    print(obs_transformed)
+    
+    red_x_trans = obs_transformed[0]
+    red_y_trans = obs_transformed[1]
+    white_x_trans = obs_transformed[2]
+    white_y_trans = obs_transformed[3]
+    
+    if verbose:
+        print("\nTransformed Table (RT Orientation via Symmetry):")
+        print("-" * 70)
+        print(f"  Red ball   : ({red_x_trans:.3f}, {red_y_trans:.3f})")
+        print(f"  White ball : ({white_x_trans:.3f}, {white_y_trans:.3f})")
+    
+    # Verify transformation properties
+    table_width = env.table.w
+    
+    # Check vertical symmetry: x_new = table.w - x_old
+    red_x_expected = table_width - red_x_orig
+    white_x_expected = table_width - white_x_orig
+    
+    red_x_matches = np.isclose(red_x_trans, red_x_expected, atol=1e-6)
+    white_x_matches = np.isclose(white_x_trans, white_x_expected, atol=1e-6)
+    red_y_matches = np.isclose(red_y_trans, red_y_orig, atol=1e-6)
+    white_y_matches = np.isclose(white_y_trans, white_y_orig, atol=1e-6)
+    
+    if verbose:
+        print("\nTransformation Verification:")
+        print("-" * 70)
+        print(f"  Red X:   {red_x_orig:.3f} → {red_x_trans:.3f} (expected: {red_x_expected:.3f}) {'✓' if red_x_matches else '✗'}")
+        print(f"  Red Y:   {red_y_orig:.3f} → {red_y_trans:.3f} (expected: {red_y_orig:.3f}) {'✓' if red_y_matches else '✗'}")
+        print(f"  White X: {white_x_orig:.3f} → {white_x_trans:.3f} (expected: {white_x_expected:.3f}) {'✓' if white_x_matches else '✗'}")
+        print(f"  White Y: {white_y_orig:.3f} → {white_y_trans:.3f} (expected: {white_y_orig:.3f}) {'✓' if white_y_matches else '✗'}")
+    
+    all_correct = red_x_matches and white_x_matches and red_y_matches and white_y_matches
+    
+    # Create side-by-side visualization
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # === LEFT PLOT: Original Table (LT Orientation) ===
+    ax_left.set_title('Original Table (LT Orientation)', fontsize=14, fontweight='bold')
+    
+    # Draw table
+    table_rect_left = patches.Rectangle(
+        (0, 0), env.table.w, env.table.l,
+        linewidth=2, edgecolor='darkgreen', facecolor='green', alpha=0.6
+    )
+    ax_left.add_patch(table_rect_left)
+    
+    # Draw balls
+    white_circle_left = patches.Circle(
+        (white_x_orig, white_y_orig), env.R,
+        edgecolor='white', facecolor='white', linewidth=2
+    )
+    ax_left.add_patch(white_circle_left)
+    ax_left.plot(white_x_orig, white_y_orig, 'k+', markersize=10, markeredgewidth=2)
+    
+    red_circle_left = patches.Circle(
+        (red_x_orig, red_y_orig), env.R,
+        edgecolor='darkred', facecolor='red', linewidth=2
+    )
+    ax_left.add_patch(red_circle_left)
+    ax_left.plot(red_x_orig, red_y_orig, 'k+', markersize=10, markeredgewidth=2)
+    
+    # Mark LT pocket
+    lt_pocket = env.table.pockets['lt']
+    lt_center = np.array([float(lt_pocket.center[0]), float(lt_pocket.center[1])])
+    ax_left.plot(lt_center[0], lt_center[1], 'b*', markersize=20, label='LT Pocket')
+    
+    # Draw shot lines
+    ax_left.plot([lt_center[0], red_x_orig], [lt_center[1], red_y_orig], 'b-', linewidth=2, alpha=0.8)
+    ax_left.plot([red_x_orig, white_x_orig], [red_y_orig, white_y_orig], 'b-', linewidth=2, alpha=0.8)
+    
+    ax_left.set_xlim(-0.2, env.table.w + 0.2)
+    ax_left.set_ylim(-0.2, env.table.l + 0.2)
+    ax_left.set_aspect('equal')
+    ax_left.grid(True, alpha=0.3)
+    ax_left.legend(fontsize=10, loc='upper right')
+    ax_left.set_xlabel('X (meters)', fontsize=11)
+    ax_left.set_ylabel('Y (meters)', fontsize=11)
+    
+    # === RIGHT PLOT: Transformed Table (RT Orientation) ===
+    ax_right.set_title('Transformed Table (RT Orientation via Symmetry)', fontsize=14, fontweight='bold')
+    
+    # Draw table
+    table_rect_right = patches.Rectangle(
+        (0, 0), env.table.w, env.table.l,
+        linewidth=2, edgecolor='darkgreen', facecolor='green', alpha=0.6
+    )
+    ax_right.add_patch(table_rect_right)
+    
+    # Draw balls (transformed positions)
+    white_circle_right = patches.Circle(
+        (white_x_trans, white_y_trans), env.R,
+        edgecolor='white', facecolor='white', linewidth=2
+    )
+    ax_right.add_patch(white_circle_right)
+    ax_right.plot(white_x_trans, white_y_trans, 'k+', markersize=10, markeredgewidth=2)
+    
+    red_circle_right = patches.Circle(
+        (red_x_trans, red_y_trans), env.R,
+        edgecolor='darkred', facecolor='red', linewidth=2
+    )
+    ax_right.add_patch(red_circle_right)
+    ax_right.plot(red_x_trans, red_y_trans, 'k+', markersize=10, markeredgewidth=2)
+    
+    # Mark RT pocket (which appears as LT position after transformation)
+    rt_pocket = env.table.pockets['rt']
+    rt_center = np.array([float(rt_pocket.center[0]), float(rt_pocket.center[1])])
+    ax_right.plot(rt_center[0], rt_center[1], 'r*', markersize=20, label='RT Pocket')
+    
+    # Draw shot lines
+    ax_right.plot([rt_center[0], red_x_trans], [rt_center[1], red_y_trans], 'r-', linewidth=2, alpha=0.8)
+    ax_right.plot([red_x_trans, white_x_trans], [red_y_trans, white_y_trans], 'r-', linewidth=2, alpha=0.8)
+    
+    ax_right.set_xlim(-0.2, env.table.w + 0.2)
+    ax_right.set_ylim(-0.2, env.table.l + 0.2)
+    ax_right.set_aspect('equal')
+    ax_right.grid(True, alpha=0.3)
+    ax_right.legend(fontsize=10, loc='upper right')
+    ax_right.set_xlabel('X (meters)', fontsize=11)
+    ax_right.set_ylabel('Y (meters)', fontsize=11)
+    
+    # Add info text
+    info_text = (
+        f"Symmetry Axis: x = {table_width/2:.3f}m\n"
+        f"Transformation: x_new = {table_width:.3f} - x_old\n"
+        f"Y-coordinates: unchanged\n"
+        f"{'✓ All coordinates transformed correctly' if all_correct else '✗ Transformation error detected'}"
+    )
+    fig.text(0.5, 0.02, info_text, ha='center', fontsize=11, 
+             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    plt.tight_layout(rect=[0, 0.08, 1, 1])
+    plt.show()
+    
+    if verbose:
+        print("\n" + "=" * 70)
+        if all_correct:
+            print("✓ Test PASSED: All coordinates transformed correctly!")
+        else:
+            print("✗ Test FAILED: Transformation errors detected!")
+        print("=" * 70 + "\n")
+    
+    return {
+        'obs_original': obs,
+        'obs_transformed': obs_transformed,
+        'red_original': (red_x_orig, red_y_orig),
+        'red_transformed': (red_x_trans, red_y_trans),
+        'white_original': (white_x_orig, white_y_orig),
+        'white_transformed': (white_x_trans, white_y_trans),
+        'transformation_correct': all_correct
+    }
+
+
 if __name__ == "__main__":
     from RLEnv import RLBilliard
     

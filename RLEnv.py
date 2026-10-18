@@ -21,6 +21,7 @@ class RLBilliard(gym.Env):
                use_curriculum=True, fixed_difficulty=100.0,
                curriculum_initial_difficulty=20.0, curriculum_counter_1=50_000,
                curriculum_final_difficulty=100.0, curriculum_counter_2=100_000,
+               target_pocket_id='lt',
                verbose=True):
     super().__init__()
 
@@ -35,14 +36,15 @@ class RLBilliard(gym.Env):
     self.white_x_range = white_x_range
     self.white_y_range = white_y_range
 
-    # Target pocket: always top-left
-    # Top-left: minimize x² + (l - y)²
-    self.target_pocket_id = min(
-        self.table.pockets.keys(),
-        key=lambda p_id: self.table.pockets[p_id].center[0] ** 2
-        + (self.table.l - self.table.pockets[p_id].center[1]) ** 2,
-    )
-    self.target_pocket_pos = np.array([0.0, self.table.l])
+    # Target pocket: can be 'lt' (top-left, default) or 'rt' (top-right)
+    if target_pocket_id not in ['lt', 'rt']:
+      raise ValueError(f"target_pocket_id must be 'lt' or 'rt', got '{target_pocket_id}'")
+    
+    self.target_pocket_id = target_pocket_id
+    
+    # Get pocket center from table
+    pocket_center = self.table.pockets[target_pocket_id].center
+    self.target_pocket_pos = np.array([float(pocket_center[0]), float(pocket_center[1])])
 
     # Action Space:
     # Action[0] = control_angle_magnitude in [0, 6] degrees (from -1 to 1 normalized)
@@ -592,12 +594,13 @@ class RLBilliard(gym.Env):
 
 # --- Test Run ---
 if __name__ == "__main__":
-  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization
+  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket
   
-  env = RLBilliard(use_curriculum=False, verbose=True)
-#  test_initial(env)
+  env = RLBilliard(use_curriculum=False, fixed_difficulty = 100,target_pocket_id='rt', verbose=True)
+  test_initial(env)
 #  test_difficulty(env, target_difficulty=50)
 #  test_position_difficulty(env, target_pocket='lt')
-  test_calculate_position_difficulty_with_visualization(env)
+#  test_calculate_position_difficulty_with_visualization(env)
+#  test_transform_obs_for_rt_pocket(verbose=True)
   
 
