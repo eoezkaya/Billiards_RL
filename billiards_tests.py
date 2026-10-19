@@ -563,6 +563,113 @@ def test_transform_obs_for_rt_pocket(verbose=True):
     }
 
 
+def test_reset_with_positions(red_pos=(0.5, 1.5), white_pos=(0.5, 0.9), action=None, verbose=True):
+    """
+    Test the reset_with_positions method.
+    
+    Places balls at specific positions, visualizes the table, and executes a shot.
+    This tests the ability to initialize the environment with predetermined ball
+    configurations for testing specific scenarios.
+    
+    Args:
+        red_pos (tuple): Red ball position [x, y] in meters. Default: (0.5, 1.5)
+        white_pos (tuple): White ball position [x, y] in meters. Default: (0.5, 0.9)
+        action (np.ndarray, optional): Action to execute. If None, uses [0.0, 0.5]
+        verbose (bool): If True, prints detailed output. Default is True.
+    
+    Returns:
+        dict: Test results including positions, observation, execution results
+    """
+    from RLEnv import RLBilliard
+    
+    print("\n" + "=" * 70)
+    print("Test: Reset with Specific Ball Positions")
+    print("=" * 70)
+    
+    if action is None:
+        action = np.array([0.0, 0.5], dtype=np.float32)
+    
+    # Create environment
+    env = RLBilliard(verbose=False, use_curriculum=False, fixed_difficulty=100)
+    
+    if verbose:
+        print("\nInitializing environment with specific ball positions...")
+        print(f"  Red ball   : {red_pos}")
+        print(f"  White ball : {white_pos}")
+    
+    try:
+        # Reset with specific positions
+        obs, info = env.reset_with_positions(red_pos=red_pos, white_pos=white_pos)
+        
+        if verbose:
+            print("\n✓ Reset successful!")
+            print("\nInitialized Position Data:")
+            print("-" * 70)
+            print(f"  Red ball position   : ({info['red_pos'][0]:.3f}, {info['red_pos'][1]:.3f})")
+            print(f"  White ball position : ({info['white_pos'][0]:.3f}, {info['white_pos'][1]:.3f})")
+            print(f"  Cut side            : {info['cut_side']}")
+            print(f"  Cut angle           : {info['cut_angle']:.2f}°")
+            print(f"  Observation (norm)  : {obs}")
+        
+        # Visualize the table before shot
+        if verbose:
+            print("\nVisualizing table before shot...")
+        env.visualize_balls()
+        
+        # Execute action
+        if verbose:
+            print("\nExecuting shot...")
+            print(f"  Action (angle, velocity): [{action[0]:.2f}, {action[1]:.2f}]")
+        
+        obs_after, reward, terminated, truncated, info_after = env.step(action)
+        
+        # Extract result info
+        is_success = info_after.get("red_pocketed_target", False)
+        white_scratch = info_after.get("white_scratch", False)
+        
+        if verbose:
+            print("\nShot Results:")
+            print("-" * 70)
+            print(f"  Reward              : {reward:.2f}")
+            print(f"  Red Pocketed        : {is_success}")
+            print(f"  White Scratch       : {white_scratch}")
+            print(f"  Episode Terminated  : {terminated}")
+            print(f"  Observation (norm)  : {obs_after}")
+        
+        # Render the shot (3D visualization)
+        if verbose:
+            print("\nRendering shot animation...")
+        env.render()
+        
+        results = {
+            'red_pos': red_pos,
+            'white_pos': white_pos,
+            'action': action,
+            'obs_initial': obs,
+            'obs_after': obs_after,
+            'reward': reward,
+            'success': is_success,
+            'white_scratch': white_scratch,
+            'terminated': terminated,
+            'cut_side': info['cut_side'],
+            'cut_angle': info['cut_angle']
+        }
+        
+        if verbose:
+            print("\n" + "=" * 70)
+            print("✓ Test COMPLETED successfully!")
+            print("=" * 70 + "\n")
+        
+        return results
+        
+    except ValueError as e:
+        if verbose:
+            print(f"\n✗ Test FAILED with validation error:")
+            print(f"  {str(e)}")
+            print("=" * 70 + "\n")
+        raise
+
+
 if __name__ == "__main__":
     from RLEnv import RLBilliard
     

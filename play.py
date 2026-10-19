@@ -7,11 +7,12 @@ from stable_baselines3 import PPO
 
 from RLEnv import RLBilliard
 
-
+TARGET_POCKET_ID = 'rt'
 def main():
-    model_path = "./models/ppo_billiards/ppo_billiards_final.zip"
-
+    model_path = "./models/ppo_billiards/ppo_billiards_final_" + TARGET_POCKET_ID + ".zip"
+    
     if not os.path.exists(model_path):
+
         raise FileNotFoundError(
             f"No trained model found at {model_path}. Run train.py first!"
         )
@@ -20,9 +21,9 @@ def main():
     model = PPO.load(model_path)
 
     # Initialize environment for inference
-    env = RLBilliard(verbose=False, use_curriculum=False, fixed_difficulty=100)
+    env = RLBilliard(verbose=True, use_curriculum=False, fixed_difficulty=40, target_pocket_id=TARGET_POCKET_ID)
 
-    total_episodes = 4
+    total_episodes = 20
     successful_shots = 0
 
     print(f"\n--- Starting Evaluation ({total_episodes} Games) ---")

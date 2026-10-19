@@ -10,6 +10,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 # Fixed environment worker count (Set by the user, excluded from dv.txt)
 NUM_ENVS = 8
+TARGET_POCKET_ID = 'rt'
 
 _PARAM_ORDER = [
     "learning_rate",
@@ -135,7 +136,7 @@ def load_design_vector(file_path: str = "dv.txt") -> dict:
 def make_env(rank: int = 0, seed: int = 42):
   def _init():
     import RLEnv
-    env = RLEnv.RLBilliard(verbose=True, target_pocket_id='rt')
+    env = RLEnv.RLBilliard(verbose=True, target_pocket_id=TARGET_POCKET_ID)
     env.reset(seed=seed + rank)
     return env
 
@@ -195,7 +196,7 @@ def main():
   successful_shots = 0
   
   import RLEnv
-  test_env = RLEnv.RLBilliard(use_curriculum=False, fixed_difficulty=100)
+  test_env = RLEnv.RLBilliard(use_curriculum=False, fixed_difficulty=70, target_pocket_id=TARGET_POCKET_ID)
 
   print(f"\nStarting 1000-game evaluation post-training...")
   for episode in range(1, eval_episodes + 1):

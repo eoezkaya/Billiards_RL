@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+from pyexpat import model
 import time
 import numpy as np
 from stable_baselines3 import PPO
@@ -67,15 +68,25 @@ def transform_obs_for_rt_pocket(obs, env):
 
 
 def main():
-    model_path = "./models/ppo_billiards/ppo_billiards_final.zip"
+    model_path_top_left = "./models/ppo_billiards/ppo_billiards_final_tl.zip"
+    model_path_top_right = "./models/ppo_billiards/ppo_billiards_final_tr.zip"
+    
 
-    if not os.path.exists(model_path):
+    if not os.path.exists(model_path_top_left):
         raise FileNotFoundError(
-            f"No trained model found at {model_path}. Run train.py first!"
+            f"No trained model found at {model_path_top_left}. Run train.py first!"
         )
 
-    print(f"Loading trained model from: {model_path}")
-    model = PPO.load(model_path)
+    print(f"Loading trained model from: {model_path_top_left}")
+    model_tl = PPO.load(model_path_top_left)
+    
+    if not os.path.exists(model_path_top_right):
+        raise FileNotFoundError(
+            f"No trained model found at {model_path_top_right}. Run train.py first!"
+        )
+
+    print(f"Loading trained model from: {model_path_top_right}")
+    model_tr = PPO.load(model_path_top_right)
 
     # Initialize environment for inference
     env = RLBilliard(verbose=False, use_curriculum=False, fixed_difficulty=100)
@@ -118,13 +129,11 @@ def main():
         # Select easier pocket
         if difficulty_lt <= difficulty_rt:
             target_pocket = 'lt'
-            obs_for_model = obs
             
             print(f"    → Selected: Top-Left (easier)")
         else:
             target_pocket = 'rt'
-            obs_for_model = transform_obs_for_rt_pocket(obs, env)
-            env.cut_side_factor = -1.0
+            obs_transformed = transform_obs_for_rt_pocket(obs, env)
             print(f"    → Selected: Top-Right (easier)")
             print(f"    → Observation transformed by vertical symmetry")
             print(f"    → Angle will be negated for opposite cut")
@@ -133,7 +142,13 @@ def main():
         print()
 
         # Predict deterministic action from trained policy
-        action, _states = model.predict(obs_for_model, deterministic=True)
+
+        if target_pocket == 'lt':
+            action, _states = model_tl.predict(obs, deterministic=True)
+            env.set_target_pocket('lt')
+        else:
+            env.set_target_pocket('rt')
+            action, _states = model_tl.predict(obs_transformed, deterministic=True)
 
 
         obs, reward, terminated, truncated, info = env.step(action)

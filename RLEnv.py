@@ -8,6 +8,7 @@ import numpy as np
 import pooltool as pt
 from gymnasium import spaces
 from billiards_visualizer import visualize_balls
+from rlenv_display import format_env_state
 
 
 class RLBilliard(gym.Env):
@@ -20,7 +21,7 @@ class RLBilliard(gym.Env):
                white_x_range=(0.1, 0.9), white_y_range=(0.75, 1.25),
                use_curriculum=True, fixed_difficulty=100.0,
                curriculum_initial_difficulty=20.0, curriculum_counter_1=50_000,
-               curriculum_final_difficulty=100.0, curriculum_counter_2=100_000,
+               curriculum_final_difficulty=70.0, curriculum_counter_2=100_000,
                target_pocket_id='lt',
                verbose=True):
     super().__init__()
@@ -83,6 +84,46 @@ class RLBilliard(gym.Env):
         self.current_curriculum_difficulty = self.fixed_difficulty
     else:
         self.current_curriculum_difficulty = self._calculate_curriculum_difficulty()
+
+  def set_target_pocket(self, pocket_id):
+    """
+    Change the target pocket for the environment.
+    
+    This method allows switching between different pockets without creating
+    a new environment instance. Useful for adaptive strategies that play
+    different pockets based on position difficulty.
+    
+    Args:
+        pocket_id (str): The target pocket ID. Must be 'lt' (top-left) or 'rt' (top-right).
+    
+    Raises:
+        ValueError: If pocket_id is not 'lt' or 'rt'
+    
+    Returns:
+        None
+    """
+    if pocket_id not in ['lt', 'rt']:
+      raise ValueError(f"pocket_id must be 'lt' or 'rt', got '{pocket_id}'")
+    
+    self.target_pocket_id = pocket_id
+    
+    # Update pocket position from table
+    pocket_center = self.table.pockets[pocket_id].center
+    self.target_pocket_pos = np.array([float(pocket_center[0]), float(pocket_center[1])])
+    
+    if self.verbose:
+      pocket_names = {'lt': 'Top-Left', 'rt': 'Top-Right'}
+      print(f"Target pocket changed to: {pocket_names[pocket_id]} ({pocket_id})")
+
+  def __str__(self):
+    """
+    Return a detailed string representation of the RLBilliard environment state.
+    
+    Uses the rlenv_display module to format and display all important class
+    information including table dimensions, ball positions, target pocket,
+    difficulty settings, and geometry info.
+    """
+    return format_env_state(self)
 
   def _determine_cut_side(self, white_pos, red_pos):
     """Calculates cut side and cut angle between cue vector and pocket vector."""
@@ -189,6 +230,81 @@ class RLBilliard(gym.Env):
       )
 
     return obs, info
+
+  def reset_with_positions(self, red_pos, white_pos):
+    """
+    Reset the environment with specific ball positions.
+    
+    This method allows you to initialize the environment with predetermined
+    ball positions instead of random generation. Useful for testing specific
+    scenarios, debugging, or setting up custom table states.
+    
+    Args:
+        red_pos (tuple or list): Red ball position [x, y] in meters
+        white_pos (tuple or list): White ball position [x, y] in meters
+    
+    Returns:
+        tuple: (observation, info) where observation is the initial state
+    
+    Raises:
+        ValueError: If ball positions are outside table boundaries or too close together
+    
+    Example:
+        >>> env = RLBilliard()
+        >>> obs, info = env.reset_with_positions(
+        ...     red_pos=(0.5, 1.5),
+        ...     white_pos=(0.5, 0.9)
+        ... )
+    """
+    # Initialize seed
+    super().reset(seed=None)
+    
+    # Initialize balls
+    self.balls = pt.get_rack(pt.GameType.THREECUSHION, self.table)
+    del self.balls["yellow"]
+    
+    # Validate and set ball positions
+    red_x, red_y = float(red_pos[0]), float(red_pos[1])
+    white_x, white_y = float(white_pos[0]), float(white_pos[1])
+    
+    # Check bounds
+    if not (0 <= red_x <= self.table.w and 0 <= red_y <= self.table.l):
+      raise ValueError(f"Red ball position ({red_x}, {red_y}) is outside table bounds (0-{self.table.w}, 0-{self.table.l})")
+    
+    if not (0 <= white_x <= self.table.w and 0 <= white_y <= self.table.l):
+      raise ValueError(f"White ball position ({white_x}, {white_y}) is outside table bounds (0-{self.table.w}, 0-{self.table.l})")
+    
+    # Check minimum distance between balls (must be at least 2 * radius apart)
+    min_distance = 2 * self.R
+    distance = np.hypot(red_x - white_x, red_y - white_y)
+    if distance < min_distance:
+      raise ValueError(f"Balls too close: distance={distance:.4f}m, minimum required={min_distance:.4f}m")
+    
+    # Set ball positions
+    self.balls["red"].state.rvw[0] = [red_x, red_y, self.R]
+    self.balls["white"].state.rvw[0] = [white_x, white_y, self.R]
+    
+    # Calculate aiming and cut side geometry
+    dx_aim = red_x - white_x
+    dy_aim = red_y - white_y
+    self.aim_angle_deg = np.rad2deg(np.arctan2(dy_aim, dx_aim)) % 360
+    
+    self.cut_side, self.cut_angle = self._determine_cut_side(
+        (white_x, white_y), (red_x, red_y)
+    )
+    
+    observation = self._get_obs()
+    info = {
+        "cut_side": self.cut_side,
+        "cut_angle": self.cut_angle,
+        "red_pos": (red_x, red_y),
+        "white_pos": (white_x, white_y)
+    }
+    
+    if self.verbose:
+      print(f"Reset with positions: Red=({red_x:.3f}, {red_y:.3f}), White=({white_x:.3f}, {white_y:.3f})")
+    
+    return observation, info
 
   def _calculate_max_cut_angle_deg(self, white_pos, red_pos):
     """Calculates the maximum angle deviation (in degrees) for tangent contact."""
@@ -412,8 +528,8 @@ class RLBilliard(gym.Env):
       
       # If difficulty meets target, return this configuration
       if position_difficulty <= target_difficulty:
-        if self.verbose:
-          print(f"✓ Found suitable position at difficulty {position_difficulty:.1f}/100 (target: {target_difficulty}/100)")
+#        if self.verbose:
+#          print(f"✓ Found suitable position at difficulty {position_difficulty:.1f}/100 (target: {target_difficulty}/100)")
         info["position_difficulty"] = position_difficulty
         info["current_curriculum_difficulty"] = self.current_curriculum_difficulty
         return obs, info
@@ -594,13 +710,16 @@ class RLBilliard(gym.Env):
 
 # --- Test Run ---
 if __name__ == "__main__":
-  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket
+  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket, test_reset_with_positions
   
-  env = RLBilliard(use_curriculum=False, fixed_difficulty = 100,target_pocket_id='rt', verbose=True)
-  test_initial(env)
-#  test_difficulty(env, target_difficulty=50)
-#  test_position_difficulty(env, target_pocket='lt')
-#  test_calculate_position_difficulty_with_visualization(env)
-#  test_transform_obs_for_rt_pocket(verbose=True)
+  env = RLBilliard(use_curriculum=False, fixed_difficulty=100, target_pocket_id='lt', verbose=True)
   
+  # Test reset_with_positions with specific ball coordinates
+  test_reset_with_positions(
+      red_pos=(0.5, 1.5),
+      white_pos=(0.5, 0.9),
+      action=np.array([0.0, 0.5], dtype=np.float32),
+      verbose=True
+  )
+
 
