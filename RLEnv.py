@@ -17,10 +17,10 @@ class RLBilliard(gym.Env):
   metadata = {"render_modes": ["human"]}
 
   def __init__(self, render_mode=None,
-               red_x_range=(0.1, 0.9), red_y_range=(1.25, 1.75),
+               red_x_range=(0.1, 0.9), red_y_range=(1.25, 1.95),
                white_x_range=(0.1, 0.9), white_y_range=(0.75, 1.25),
                use_curriculum=True, fixed_difficulty=100.0,
-               curriculum_initial_difficulty=20.0, curriculum_counter_1=50_000,
+               curriculum_initial_difficulty=20.0, curriculum_counter_1=20_000,
                curriculum_final_difficulty=70.0, curriculum_counter_2=100_000,
                target_pocket_id='lt',
                verbose=True):
@@ -578,7 +578,7 @@ class RLBilliard(gym.Env):
     self.shot = pt.System(
         table=self.table, balls=copy.deepcopy(self.balls), cue=cue
     )
-    self.shot.cue.set_state(v0, phi=final_phi, theta=45.0, a=0.0, b=0.0)
+    self.shot.cue.set_state(v0, phi=final_phi, theta=0.0, a=0.0, b=0.0)
     self.shot.strike()
     self.shot_counter += 1  # Increment shot counter
 
@@ -713,13 +713,15 @@ if __name__ == "__main__":
   from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket, test_reset_with_positions
   
   env = RLBilliard(use_curriculum=False, fixed_difficulty=100, target_pocket_id='lt', verbose=True)
+
+  env.generate_episode_dataset(num_episodes=1000, output_dir="episode_visualizations")
   
   # Test reset_with_positions with specific ball coordinates
-  test_reset_with_positions(
-      red_pos=(0.5, 1.5),
-      white_pos=(0.5, 0.9),
-      action=np.array([0.0, 0.5], dtype=np.float32),
-      verbose=True
-  )
+#  test_reset_with_positions(
+#      red_pos=(0.5, 1.5),
+#      white_pos=(0.5, 0.9),
+#      action=np.array([0.0, 0.5], dtype=np.float32),
+#      verbose=True
+#  )
 
 

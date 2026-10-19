@@ -10,7 +10,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 # Fixed environment worker count (Set by the user, excluded from dv.txt)
 NUM_ENVS = 8
-TARGET_POCKET_ID = 'rt'
+TARGET_POCKET_ID = 'lt'
 
 _PARAM_ORDER = [
     "learning_rate",
