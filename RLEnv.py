@@ -558,20 +558,13 @@ class RLBilliard(gym.Env):
   # 1. Compute dynamic max angle for tangent contact
     theta_max_deg = self._calculate_max_cut_angle_deg(white_pos, red_pos)
 
-    # Map raw_angle [-1, 1] -> [0.0, theta_max_deg]
-    angle_perturbation = (raw_angle + 1.0) / 2.0 * theta_max_deg
+    # Map raw_angle [-1, 1] -> [-theta_max_deg, theta_max_deg]
+    angle_perturbation = raw_angle * theta_max_deg
     # Map raw_velocity [-1, 1] -> [0.5, 3.0]
     v0 = 0.5 + (raw_velocity + 1.0) / 2.0 * (3.0 - 0.5)
 
-    # Apply sign based on determined cut side
-    if self.cut_side == "LEFT":
-      signed_control_angle = -angle_perturbation
-    elif self.cut_side == "RIGHT":
-      signed_control_angle = angle_perturbation
-    else:  # STRAIGHT_IN
-      signed_control_angle = 0.0
-
-    final_phi = (self.aim_angle_deg + signed_control_angle) % 360
+    # Apply perturbation to aim angle
+    final_phi = (self.aim_angle_deg + angle_perturbation) % 360
 
     # Execute simulation (deepcopy balls so initial reset state remains clean across steps)
     cue = pt.Cue(cue_ball_id="white")
@@ -623,7 +616,6 @@ class RLBilliard(gym.Env):
         "red_pocketed_target": red_pocketed_target,
         "white_pocketed": white_pocketed,
         "observation": observation,
-        "signed_control_angle": signed_control_angle,
         "final_phi": final_phi,
     }
 
@@ -713,8 +705,9 @@ if __name__ == "__main__":
   from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket, test_reset_with_positions
   
   env = RLBilliard(use_curriculum=False, fixed_difficulty=100, target_pocket_id='lt', verbose=True)
+  test_initial(env)
 
-  env.generate_episode_dataset(num_episodes=1000, output_dir="episode_visualizations")
+#  env.generate_episode_dataset(num_episodes=1000, output_dir="episode_visualizations")
   
   # Test reset_with_positions with specific ball coordinates
 #  test_reset_with_positions(

@@ -204,7 +204,6 @@ def test_initial(env):
     obs, reward, terminated, truncated, info = env.step(action1)
     shot1 = env.shot
 
-    print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
     print(f"Reward Received: {reward}")
     print(f"Red Pocketed in Target Pocket (top-left): {info['red_pocketed_target']}")
     print(f"White Scratch: {info['white_pocketed']}")
@@ -216,7 +215,6 @@ def test_initial(env):
     obs, reward, terminated, truncated, info = env.step(action2)
     shot2 = env.shot
 
-    print(f"Executed Control Angle: {info['signed_control_angle']:.2f}°")
     print(f"Reward Received: {reward}")
     print(f"Red Pocketed in Target Pocket (top-left): {info['red_pocketed_target']}")
     print(f"White Scratch: {info['white_pocketed']}")
