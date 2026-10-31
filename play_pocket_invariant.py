@@ -5,7 +5,7 @@ import time
 import numpy as np
 from stable_baselines3 import PPO
 
-from RLEnv_pocket_invariant import RLBilliard_pocket_invariant
+from RLEnv_pocket_invariant import RLBilliard
 
 TARGET_POCKET_ID = 'lt'
 DIFFICULTY = 30
@@ -26,7 +26,7 @@ def main():
 
 
     # Initialize environment for inference
-    env = RLBilliard_pocket_invariant(
+    env = RLBilliard(
         verbose=False,
         red_x_range = red_x_range,
         red_y_range = red_y_range,

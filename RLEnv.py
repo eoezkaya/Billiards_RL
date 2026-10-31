@@ -12,7 +12,7 @@ red_y_range = (0.1, 1.95)
 white_x_range = (0.1, 0.9)
 white_y_range = (0.1, 1.95)
 
-class RLBilliard_pocket_invariant(gym.Env):
+class RLBilliard(gym.Env):
   """Custom Gymnasium Environment for a 2-ball billiards pocketing task using pooltool."""
 
   metadata = {"render_modes": ["human"]}
@@ -1188,10 +1188,10 @@ class RLBilliard_pocket_invariant(gym.Env):
 
 # --- Demo Usage ---
 if __name__ == "__main__":
-  """Simple demonstration of the RLBilliard_pocket_invariant environment."""
+  """Simple demonstration of the RLBilliard environment."""
   
   # Create environment
-  env = RLBilliard_pocket_invariant(
+  env = RLBilliard(
       use_curriculum=False,
       fixed_difficulty=100,
       target_pocket_id='lc',

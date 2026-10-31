@@ -54,7 +54,7 @@ def visualize_table(env, filename=None, show_pocket_coords=True, show_absolute_c
       - Aim ray (direct or via cushion)
     
     Args:
-      env: RLBilliard_pocket_invariant environment instance
+      env: RLBilliard environment instance
       filename: If provided, save figure to this path instead of displaying
       show_pocket_coords: If True, display pocket-relative coordinates
       show_absolute_coords: If True, display absolute table coordinates
@@ -284,10 +284,10 @@ def visualize_table(env, filename=None, show_pocket_coords=True, show_absolute_c
 
 if __name__ == "__main__":
     # Example usage
-    from RLEnv_pocket_invariant import RLBilliard_pocket_invariant
+    from RLEnv_pocket_invariant import RLBilliard
     
     print("Initializing billiards environment...")
-    env = RLBilliard_pocket_invariant(use_curriculum=False, verbose=False, target_pocket_id='lc', fixed_difficulty=100)
+    env = RLBilliard(use_curriculum=False, verbose=False, target_pocket_id='lc', fixed_difficulty=100)
     
     print("Resetting environment...")
     obs, info = env.reset()

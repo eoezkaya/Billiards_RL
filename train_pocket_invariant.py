@@ -163,7 +163,7 @@ def main():
   num_envs = NUM_ENVS
 
   # Import the custom environment
-  import RLEnv_pocket_invariant as RLEnv
+  import RLEnv as RLEnv
 
   # Create vectorized environment with make_vec_env
   # - Automatically uses SubprocVecEnv for multiple environments
@@ -176,7 +176,7 @@ def main():
   white_y_range = (0.1, 1.95)
 
   vec_env = make_vec_env(
-      RLEnv.RLBilliard_pocket_invariant,
+      RLEnv.RLBilliard,
       n_envs=num_envs,
       seed=42,
       env_kwargs={
@@ -251,7 +251,7 @@ def main():
   inference_difficulty = 60.0
   
   # Use already imported RLEnv
-  test_env = RLEnv.RLBilliard_pocket_invariant(use_curriculum=False, fixed_difficulty=inference_difficulty, target_pocket_id='lt')
+  test_env = RLEnv.RLBilliard(use_curriculum=False, fixed_difficulty=inference_difficulty, target_pocket_id='lt')
 
   print(f"\nStarting {eval_episodes}-game evaluation post-training...")
   for episode in range(1, eval_episodes + 1):

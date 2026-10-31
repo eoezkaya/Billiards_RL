@@ -2,7 +2,7 @@
 
 import copy
 import os
-from RLEnv_pocket_invariant import RLBilliard_pocket_invariant
+from RLEnv import RLBilliard
 import gymnasium as gym
 import numpy as np
 
@@ -54,7 +54,7 @@ class RLBilliard_outer(gym.Env):
     self.observation = None  # Store current observation
     self.current_env = None  # Current environment (lt or rt)
 
-    self.current_env = RLBilliard_pocket_invariant(red_x_range=red_x_range, red_y_range=red_y_range,
+    self.current_env = RLBilliard(red_x_range=red_x_range, red_y_range=red_y_range,
                                                    white_x_range=white_x_range, white_y_range=white_y_range,
                                                    verbose=False, use_curriculum=False, training_corner_pocket=False, fixed_difficulty=100, target_pocket_id="lt")
     self.model_path_corner_pockets = "./models/ppo_billiards/ppo_billiards_final_corner_pockets.zip"
