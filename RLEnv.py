@@ -1,28 +1,30 @@
 #! /usr/bin/env python
 
 import copy
-from billiards_tests import test_difficulty
 import gymnasium as gym
 import numpy as np
 
 import pooltool as pt
 from gymnasium import spaces
-from billiards_visualizer import visualize_balls
-from rlenv_display import format_env_state
 
+red_x_range = (0.1, 0.9)
+red_y_range = (0.1, 1.95)
+white_x_range = (0.1, 0.9)
+white_y_range = (0.1, 1.95)
 
-class RLBilliard(gym.Env):
+class RLBilliard_pocket_invariant(gym.Env):
   """Custom Gymnasium Environment for a 2-ball billiards pocketing task using pooltool."""
 
   metadata = {"render_modes": ["human"]}
 
   def __init__(self, render_mode=None,
-               red_x_range=(0.1, 0.9), red_y_range=(1.25, 1.95),
-               white_x_range=(0.1, 0.9), white_y_range=(0.75, 1.25),
+               red_x_range=red_x_range, red_y_range=red_y_range,
+               white_x_range=white_x_range, white_y_range=white_y_range,
                use_curriculum=True, fixed_difficulty=100.0,
                curriculum_initial_difficulty=20.0, curriculum_counter_1=20_000,
-               curriculum_final_difficulty=70.0, curriculum_counter_2=100_000,
+               curriculum_final_difficulty=80.0, curriculum_counter_2=100_000,
                target_pocket_id='lt',
+               training_corner_pocket=True,
                verbose=True):
     super().__init__()
 
@@ -30,21 +32,28 @@ class RLBilliard(gym.Env):
     self.verbose = verbose
     self.table = pt.Table.default()
     self.R = 0.028575  # Standard ball radius in meters
+    self.max_cue_speed = 4.0  # Maximum cue speed in m/s
+    self.min_cue_speed = 0.8  # Minimum cue speed in m/s
+    self.linear_velocity = False  # Use quadratic scaling for cue velocity by default
 
     # Ball placement area boundaries (parameterized)
     self.red_x_range = red_x_range
     self.red_y_range = red_y_range
     self.white_x_range = white_x_range
     self.white_y_range = white_y_range
+    self.play_cushion = False
+    self.train_corner_pocket = training_corner_pocket
 
-    # Target pocket: can be 'lt' (top-left, default) or 'rt' (top-right)
-    if target_pocket_id not in ['lt', 'rt']:
-      raise ValueError(f"target_pocket_id must be 'lt' or 'rt', got '{target_pocket_id}'")
+    # Target pocket: can be 'lb', 'lt', 'rb', 'rt', 'ml', or 'mr'
+    if target_pocket_id not in ['lb', 'lt', 'rb', 'rt', 'lc', 'rc']:
+      raise ValueError(f"target_pocket_id must be 'lb', 'lt', 'rb', 'rt', 'lc', or 'rc', got '{target_pocket_id}'")
     
     self.target_pocket_id = target_pocket_id
     
     # Get pocket center from table
+    
     pocket_center = self.table.pockets[target_pocket_id].center
+    
     self.target_pocket_pos = np.array([float(pocket_center[0]), float(pocket_center[1])])
 
     # Action Space:
@@ -57,10 +66,12 @@ class RLBilliard(gym.Env):
         dtype=np.float32,
     )
     # Observation Space: (Matches normalized output in _get_obs)
-    # [red_x, red_y, white_x, white_y, cut_angle]
+    # [red_radius, red_angle, white_radius, white_angle, pocket_angle, red_angle_tri, white_angle_tri,
+    #  white_dist_left_cushion, white_dist_top_cushion]
+    # Note: triangle angles normalized to [0,1], cushion distances normalized by table dimensions
     self.observation_space = spaces.Box(
-        low=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
-        high=np.array([1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32),
+        low=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        high=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32),
         dtype=np.float32,
     )
 
@@ -70,6 +81,7 @@ class RLBilliard(gym.Env):
     self.cut_side = "STRAIGHT_IN"
     self.cut_angle = 0.0
     self.aim_angle_deg = 0.0
+    self.cushion_info = None  # Store cushion shot information when calculated
 
     # Curriculum learning parameters
     self.use_curriculum = use_curriculum
@@ -94,36 +106,43 @@ class RLBilliard(gym.Env):
     different pockets based on position difficulty.
     
     Args:
-        pocket_id (str): The target pocket ID. Must be 'lt' (top-left) or 'rt' (top-right).
+        pocket_id (str): The target pocket ID. Must be one of:
+                        'lb' (bottom-left), 'lt' (top-left), 'rb' (bottom-right), 
+                        'rt' (top-right), 'ml' (middle-left), 'mr' (middle-right)
     
     Raises:
-        ValueError: If pocket_id is not 'lt' or 'rt'
+        ValueError: If pocket_id is not a valid pocket
     
     Returns:
         None
     """
-    if pocket_id not in ['lt', 'rt']:
-      raise ValueError(f"pocket_id must be 'lt' or 'rt', got '{pocket_id}'")
+    if pocket_id not in ['lb', 'lt', 'rb', 'rt', 'lc', 'rc']:
+      raise ValueError(f"pocket_id must be 'lb', 'lt', 'rb', 'rt', 'lc', or 'rc', got '{pocket_id}'")
     
     self.target_pocket_id = pocket_id
-    
-    # Update pocket position from table
     pocket_center = self.table.pockets[pocket_id].center
     self.target_pocket_pos = np.array([float(pocket_center[0]), float(pocket_center[1])])
     
     if self.verbose:
-      pocket_names = {'lt': 'Top-Left', 'rt': 'Top-Right'}
+      pocket_names = {
+          'lt': 'Top-Left', 'rt': 'Top-Right', 
+          'lb': 'Bottom-Left', 'rb': 'Bottom-Right',
+          'ml': 'Middle-Left', 'mr': 'Middle-Right'
+      }
       print(f"Target pocket changed to: {pocket_names[pocket_id]} ({pocket_id})")
 
-  def __str__(self):
-    """
-    Return a detailed string representation of the RLBilliard environment state.
-    
-    Uses the rlenv_display module to format and display all important class
-    information including table dimensions, ball positions, target pocket,
-    difficulty settings, and geometry info.
-    """
-    return format_env_state(self)
+    # update pocket and related coordinates
+    self.pocket_coordinates = self._get_obs_pocket_relative()
+    self.pocket_polar_coords = self.get_obs_pocket_relative_polar()
+
+    red_pos = self.balls["red"].state.rvw[0][:2]
+    white_pos = self.balls["white"].state.rvw[0][:2]
+        
+    # Calculate cut side again based on updated target pocket
+    self.cut_side, self.cut_angle = self._determine_cut_side(
+      (white_pos[0], white_pos[1]), (red_pos[0], red_pos[1]))
+
+
 
   def _determine_cut_side(self, white_pos, red_pos):
     """Calculates cut side and cut angle between cue vector and pocket vector."""
@@ -146,21 +165,145 @@ class RLBilliard(gym.Env):
 
     return side, cut_angle_deg
 
-  def _get_obs(self):
-    red_pos = self.balls["red"].state.rvw[0][:2]
-    white_pos = self.balls["white"].state.rvw[0][:2]
 
+  def _get_obs(self):
+    maxR = np.sqrt(self.table.w**2 + self.table.l**2)
+    
+    # Get triangle angles
+    triangle_angles = self.calculate_triangle_angles()
+    
+    # Normalize triangle angles: angles in degrees [0, 180] -> [0, 1]
+    pocket_angle_norm = triangle_angles['pocket_angle'] / 180.0
+    red_angle_norm = triangle_angles['red_angle'] / 180.0
+    white_angle_norm = triangle_angles['white_angle'] / 180.0
+    
+    # Get white ball (cue ball) position
+    white_pos = self.balls["white"].state.rvw[0][:2]
+    
+    # Calculate distances to cushions based on target pocket
+    # For middle pockets: measure distance to closest relevant cushion
+    if self.target_pocket_id in ['lb', 'lt']:
+        # Left pockets: distance to left cushion
+        dist_to_vertical_cushion = white_pos[0]
+    elif self.target_pocket_id in ['rb', 'rt']:
+        # Right pockets: distance to right cushion
+        dist_to_vertical_cushion = self.table.w - white_pos[0]
+    elif self.target_pocket_id == 'lc':
+        # Middle-left: distance to left cushion
+        dist_to_vertical_cushion = white_pos[0]
+    elif self.target_pocket_id == 'rc':
+        # Middle-right: distance to right cushion
+        dist_to_vertical_cushion = self.table.w - white_pos[0]
+    
+    if self.target_pocket_id in ['lt', 'rt']:
+        # Top pockets: distance to top cushion
+        dist_to_horizontal_cushion = self.table.l - white_pos[1]
+    elif self.target_pocket_id in ['lb', 'rb']:
+        # Bottom pockets: distance to bottom cushion
+        dist_to_horizontal_cushion = white_pos[1]
+    elif self.target_pocket_id in ['lc', 'rc']:
+        # Middle pockets: distance is irrelevant (set to 0)
+        dist_to_horizontal_cushion = 0
+    
+    
+    # Normalize cushion distances by table dimensions
+    white_dist_vertical_norm = dist_to_vertical_cushion / self.table.w
+    white_dist_horizontal_norm = dist_to_horizontal_cushion / self.table.l
+    
     return np.array(
         [
-            red_pos[0] / self.table.w,
-            red_pos[1] / self.table.l,
-            white_pos[0] / self.table.w,
-            white_pos[1] / self.table.l,
-            self.cut_angle / 180.0,
+            self.pocket_polar_coords['red_radius'] / maxR,
+            self.pocket_polar_coords['red_angle'] / 90.0,
+            self.pocket_polar_coords['white_radius'] / maxR,
+            self.pocket_polar_coords['white_angle'] / 90.0,
+            pocket_angle_norm,
+            red_angle_norm,
+            white_angle_norm,
+            white_dist_vertical_norm,
+            white_dist_horizontal_norm,
         ],
         dtype=np.float32,
     )
 
+  def _get_obs_pocket_relative(self):
+    """
+    Get pocket-relative coordinates (not normalized, no cut_angle).
+    
+    Creates a coordinate system where the origin is at the target pocket:
+    - +x points toward the table interior (horizontal)
+    - +y points toward the table interior (vertical)
+    - -x points toward the table exterior
+    
+    Coordinate transformations for each pocket:
+    - Bottom-Left (lb): x' = x, y' = y (no change, pocket at origin)
+    - Bottom-Right (rb): x' = w - x, y' = y (flip x, origin at bottom-right)
+    - Top-Left (lt): x' = x, y' = l - y (flip y, origin at top-left)
+    - Top-Right (rt): x' = w - x, y' = l - y (flip both, origin at top-right)
+    
+    Returns:
+        np.ndarray: A 4-element float32 array with unnormalized pocket-relative coordinates:
+                   [red_x_pocket, red_y_pocket, white_x_pocket, white_y_pocket] (in meters)
+    """
+    red_pos = self.balls["red"].state.rvw[0][:2]
+    white_pos = self.balls["white"].state.rvw[0][:2]
+    
+    # Transform to pocket-relative coordinates based on target pocket
+    if self.target_pocket_id == 'lb':
+        # Bottom-left: no transformation needed, pocket is at origin
+        red_x_pocket = red_pos[0]
+        red_y_pocket = red_pos[1]
+        white_x_pocket = white_pos[0]
+        white_y_pocket = white_pos[1]
+    
+    elif self.target_pocket_id == 'rb':
+        # Bottom-right: flip x-coordinates (pocket at right edge)
+        red_x_pocket = self.table.w - red_pos[0]
+        red_y_pocket = red_pos[1]
+        white_x_pocket = self.table.w - white_pos[0]
+        white_y_pocket = white_pos[1]
+    
+    elif self.target_pocket_id == 'lt':
+        # Top-left: flip y-coordinates (pocket at top edge)
+        red_x_pocket = red_pos[0]
+        red_y_pocket = self.table.l - red_pos[1]
+        white_x_pocket = white_pos[0]
+        white_y_pocket = self.table.l - white_pos[1]
+    
+    elif self.target_pocket_id == 'rt':
+        # Top-right: flip both x and y coordinates (pocket at top-right corner)
+        red_x_pocket = self.table.w - red_pos[0]
+        red_y_pocket = self.table.l - red_pos[1]
+        white_x_pocket = self.table.w - white_pos[0]
+        white_y_pocket = self.table.l - white_pos[1]
+    
+    elif self.target_pocket_id == 'lc':
+        # Left-center: pocket at left edge center, no x-flip, y stays as is
+        red_x_pocket = red_pos[0]
+        red_y_pocket = red_pos[1] - self.table.l / 2.0
+        white_x_pocket = white_pos[0]
+        white_y_pocket = white_pos[1] - self.table.l / 2.0
+    
+    elif self.target_pocket_id == 'rc':
+        # Right-center: pocket at right edge center, flip x, y distance from center
+        red_x_pocket = self.table.w - red_pos[0]
+        red_y_pocket = red_pos[1] - self.table.l / 2.0
+        white_x_pocket = self.table.w - white_pos[0]
+        white_y_pocket = white_pos[1] - self.table.l / 2.0
+    
+    else:
+        raise ValueError(f"Unknown target_pocket_id: {self.target_pocket_id}")
+    
+    return np.array(
+        [
+            red_x_pocket,
+            red_y_pocket,
+            white_x_pocket,
+            white_y_pocket
+        ],
+        dtype=np.float32,
+    )
+
+  
   def _reset_random(self):
     """
     Internal method to randomly initialize ball positions without curriculum control.
@@ -178,22 +321,44 @@ class RLBilliard(gym.Env):
     red_y = self.np_random.uniform(self.red_y_range[0], self.red_y_range[1])
     self.balls["red"].state.rvw[0] = [red_x, red_y, self.R]
 
-    # 3. Sample White Ball: x in white_x_range, y in white_y_range
     white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
-    white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
+
+    if self.train_corner_pocket:
+      while True:
+          white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
+          if white_y < red_y:
+            break
+    else:
+          white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
+
     self.balls["white"].state.rvw[0] = [white_x, white_y, self.R]
 
-    # 4. Calculate aiming and cut side geometry
+    red_pos = self.balls["red"].state.rvw[0][:2]
+    white_pos = self.balls["white"].state.rvw[0][:2]
+    
+    # Calculate cut side and cut angle based on current ball positions
+    self.cut_side, self.cut_angle = self._determine_cut_side(
+      (white_pos[0], white_pos[1]), (red_pos[0], red_pos[1]))
+
+    # 4. Calculate aiming angle geometry
     dx_aim = red_x - white_x
     dy_aim = red_y - white_y
     self.aim_angle_deg = np.rad2deg(np.arctan2(dy_aim, dx_aim)) % 360
+    
+    # 5. Calculate cushion shot info if play_cushion is enabled
+    if self.play_cushion:
+        self.cushion_info = self.calculate_cushion_shot_angle(
+            white_pos=(white_x, white_y), 
+            red_pos=(red_x, red_y)
+        )
+    else:
+        self.cushion_info = None
 
-    self.cut_side, self.cut_angle = self._determine_cut_side(
-        (white_x, white_y), (red_x, red_y)
-    )
+    self.pocket_coordinates = self._get_obs_pocket_relative()
+    self.pocket_polar_coords = self.get_obs_pocket_relative_polar()
 
     observation = self._get_obs()
-    info = {"cut_side": self.cut_side, "cut_angle": self.cut_angle}
+    info = {}
 
     return observation, info
 
@@ -376,62 +541,150 @@ class RLBilliard(gym.Env):
     
     return angle_between_deg
 
-  def calculate_position_difficulty(self, target_pocket_id=None, visualize=False):
+  def calculate_triangle_angles(self, target_pocket_id=None):
     """
-    Calculates the difficulty of the current position on a scale of 0-100.
-    
-    Difficulty depends on two factors:
-    1. Red angle: Angle between pocket->red and red->white vectors
-       0° = best angle (straight shot), 90° = worst angle (perpendicular)
-    2. Distance to red ball: Closer distances are easier, farther distances are harder
+    Calculates the three interior angles of the triangle formed by:
+    - Red ball position
+    - White ball position
+    - Target pocket position
     
     Args:
-        target_pocket_id (str, optional): Pocket ID to calculate difficulty for.
-                                         If None, uses self.target_pocket_id (top-left)
-        visualize (bool, optional): If True, displays the positions and triangle visualization.
-                                   Default is False.
+        target_pocket_id (str, optional): Pocket ID to calculate angles for.
+                                        If None, uses self.target_pocket_id (top-left)
     
     Returns:
-        float: Difficulty score between 0 (easiest) and 100 (hardest)
+        dict: Dictionary containing:
+            - 'pocket_angle': Angle at the pocket vertex (in degrees)
+            - 'red_angle': Angle at the red ball vertex (in degrees)
+            - 'white_angle': Angle at the white ball vertex (in degrees)
+            - 'total': Sum of angles (should be ~180°, for validation)
     """
     # Use default target pocket if not specified
     if target_pocket_id is None:
       target_pocket_id = self.target_pocket_id
     
     # Get current ball positions and pocket center
-    red_pos = self.balls["red"].state.rvw[0][:2]
-    white_pos = self.balls["white"].state.rvw[0][:2]
-    pocket_center = self.table.pockets[target_pocket_id].center
-    pocket_center = np.array([float(pocket_center[0]), float(pocket_center[1])])
+    red_pos = np.array(self.balls["red"].state.rvw[0][:2])
+    white_pos = np.array(self.balls["white"].state.rvw[0][:2])
     
-    # Calculate red angle (pocket->red vs red->white)
-    red_angle = self._calculate_red_angle(white_pos, red_pos, pocket_center)
+    # Get pocket center (handle middle pockets which aren't predefined in pooltool)
+    if target_pocket_id in ['ml', 'mr']:
+      if target_pocket_id == 'ml':
+        pocket_center = (0.0, self.table.l / 2.0)
+      else:  # 'mr'
+        pocket_center = (self.table.w, self.table.l / 2.0)
+    else:
+      pocket_center = self.table.pockets[target_pocket_id].center
     
-    # Calculate distance from pocket to red ball
-    distance_to_red = np.linalg.norm(np.array(red_pos) - pocket_center)
+    pocket_pos = np.array([float(pocket_center[0]), float(pocket_center[1])])
     
-    # Normalize angle: 0° = 0 difficulty, 90° = max difficulty
-    # Normalize to 0-100 scale
-    angle_difficulty = (red_angle / 90.0) * 100.0
+    # Calculate angle at pocket vertex (angle between pocket->red and pocket->white)
+    vec_pocket_to_red = red_pos - pocket_pos
+    vec_pocket_to_white = white_pos - pocket_pos
     
-    # Normalize distance: 
-    # Maximum distance on table is diagonal from corner to corner
-    max_distance = np.linalg.norm(np.array([self.table.w, self.table.l]))
-    # Closer to pocket is easier (lower difficulty), farther is harder
-    distance_difficulty = (distance_to_red / max_distance) * 100.0
+    dot_product = np.dot(vec_pocket_to_red, vec_pocket_to_white)
+    magnitudes = np.linalg.norm(vec_pocket_to_red) * np.linalg.norm(vec_pocket_to_white)
+    if magnitudes < 1e-10:
+      pocket_angle = 0.0
+    else:
+      cos_angle = np.clip(dot_product / magnitudes, -1.0, 1.0)
+      pocket_angle = np.rad2deg(np.arccos(cos_angle))
     
-    # Combine both factors with equal weight (50% each)
-    total_difficulty = (angle_difficulty * 0.5) + (distance_difficulty * 0.5)
+    # Calculate angle at red ball vertex (angle between red->pocket and red->white)
+    vec_red_to_pocket = pocket_pos - red_pos
+    vec_red_to_white = white_pos - red_pos
     
-    # Clip to 0-100 range
-    total_difficulty = np.clip(total_difficulty, 0.0, 100.0)
+    dot_product = np.dot(vec_red_to_pocket, vec_red_to_white)
+    magnitudes = np.linalg.norm(vec_red_to_pocket) * np.linalg.norm(vec_red_to_white)
+    if magnitudes < 1e-10:
+      red_angle = 0.0
+    else:
+      cos_angle = np.clip(dot_product / magnitudes, -1.0, 1.0)
+      red_angle = np.rad2deg(np.arccos(cos_angle))
     
-    # Display visualization if requested
-    if visualize:
-      from billiards_visualizer import visualize_billiards_position
-      visualize_billiards_position(self, red_angle, total_difficulty, target_pocket_id=target_pocket_id)
+    # Calculate angle at white ball vertex (angle between white->pocket and white->red)
+    vec_white_to_pocket = pocket_pos - white_pos
+    vec_white_to_red = red_pos - white_pos
     
-    return total_difficulty
+    dot_product = np.dot(vec_white_to_pocket, vec_white_to_red)
+    magnitudes = np.linalg.norm(vec_white_to_pocket) * np.linalg.norm(vec_white_to_red)
+    if magnitudes < 1e-10:
+      white_angle = 0.0
+    else:
+      cos_angle = np.clip(dot_product / magnitudes, -1.0, 1.0)
+      white_angle = np.rad2deg(np.arccos(cos_angle))
+    
+    return {
+        'pocket_angle': pocket_angle,
+        'red_angle': red_angle,
+        'white_angle': white_angle,
+        'total': pocket_angle + red_angle + white_angle
+    }
+
+  def calculate_position_difficulty(self, target_pocket_id=None, visualize=False):
+      """
+      Calculates the difficulty of the current position on a scale of 0-100.
+      
+      Difficulty depends on two factors:
+      1. Red angle: Angle between pocket->red and red->white vectors
+        0° = best angle (straight shot), 90° = worst angle (perpendicular)
+      2. Distance to red ball: Closer distances are easier, farther distances are harder
+      
+      Args:
+          target_pocket_id (str, optional): Pocket ID to calculate difficulty for.
+                                          If None, uses self.target_pocket_id (top-left)
+          visualize (bool, optional): If True, displays the positions and triangle visualization.
+                                    Default is False.
+      
+      Returns:
+          float: Difficulty score between 0 (easiest) and 100 (hardest)
+      """
+      # Use default target pocket if not specified
+      if target_pocket_id is None:
+        target_pocket_id = self.target_pocket_id
+      
+      # Get current ball positions and pocket center
+      red_pos = self.balls["red"].state.rvw[0][:2]
+      white_pos = self.balls["white"].state.rvw[0][:2]
+      
+      # Get pocket center (handle middle pockets which aren't predefined in pooltool)
+#      if target_pocket_id in ['lc', 'rc']:
+#        if target_pocket_id == 'lc':
+#          pocket_center = (0.0, self.table.l / 2.0)
+#        else:  # 'rc'
+#          pocket_center = (self.table.w, self.table.l / 2.0)
+#      else:
+      pocket_center = self.table.pockets[target_pocket_id].center
+      
+      pocket_center = np.array([float(pocket_center[0]), float(pocket_center[1])])
+      
+      # Calculate red angle (pocket->red vs red->white)
+      red_angle = self._calculate_red_angle(white_pos, red_pos, pocket_center)
+      
+      # Calculate distance from pocket to red ball
+      distance_to_red = np.linalg.norm(np.array(red_pos) - pocket_center)
+      
+      # Normalize angle: 0° = 0 difficulty, 90° = max difficulty
+      # Normalize to 0-100 scale
+      angle_difficulty = (red_angle / 90.0) * 100.0
+      
+      # Normalize distance: 
+      # Maximum distance on table is diagonal from corner to corner
+      max_distance = np.linalg.norm(np.array([self.table.w, self.table.l]))
+      # Closer to pocket is easier (lower difficulty), farther is harder
+      distance_difficulty = (distance_to_red / max_distance) * 100.0
+      
+      total_difficulty = (angle_difficulty * 0.6) + (distance_difficulty * 0.4)
+      
+      # Clip to 0-100 range
+      total_difficulty = np.clip(total_difficulty, 0.0, 100.0)
+      
+      # Display visualization if requested
+      if visualize:
+        from billiards_visualizer import visualize_billiards_position
+        visualize_billiards_position(self, red_angle, total_difficulty, target_pocket_id=target_pocket_id)
+      
+      return total_difficulty
 
   def _calculate_curriculum_difficulty(self, target_counter=None):
     """
@@ -538,8 +791,8 @@ class RLBilliard(gym.Env):
     
     # If we couldn't find suitable position, log warning and return last attempt
     if self.verbose:
-      print(f"⚠ Could not find position with difficulty <= {target_difficulty}/100 after {max_attempts} attempts")
-      print(f"  Returning position with difficulty {position_difficulty:.1f}/100 (closest found)")
+      print(f"⚠ Could not find position with difficulty <= {target_difficulty:.0f}/100 after {max_attempts} attempts")
+      print(f"  Returning position with difficulty {position_difficulty:.0f}/100 (closest found)")
     info["position_difficulty"] = position_difficulty
     info["current_curriculum_difficulty"] = self.current_curriculum_difficulty
     return obs, info
@@ -560,8 +813,22 @@ class RLBilliard(gym.Env):
 
     # Map raw_angle [-1, 1] -> [0.0, theta_max_deg]
     angle_perturbation = (raw_angle + 1.0) / 2.0 * theta_max_deg
-    # Map raw_velocity [-1, 1] -> [0.5, 3.0]
-    v0 = 0.5 + (raw_velocity + 1.0) / 2.0 * (3.0 - 0.5)
+
+    if self.linear_velocity:
+        # Map raw_velocity [-1, 1] -> [self.min_cue_speed, self.max_cue_speed]
+        v0 = self.min_cue_speed + (raw_velocity + 1.0) / 2.0 * (self.max_cue_speed - self.min_cue_speed)
+    else:
+        # Normalize action raw_velocity from [-1, 1] to [0, 1]
+        normalized_action = (raw_velocity + 1.0) / 2.0
+
+        # Apply quadratic power scaling (gamma = 2.0)
+        scaled_ratio = normalized_action ** 2.0
+
+        # Map to physical speed range
+        v0 = self.min_cue_speed + scaled_ratio * (self.max_cue_speed - self.min_cue_speed)
+
+    
+    
 
     # Apply sign based on determined cut side
     if self.cut_side == "LEFT":
@@ -572,6 +839,7 @@ class RLBilliard(gym.Env):
       signed_control_angle = 0.0
 
     final_phi = (self.aim_angle_deg + signed_control_angle) % 360
+    
 
     # Execute simulation (deepcopy balls so initial reset state remains clean across steps)
     cue = pt.Cue(cue_ball_id="white")
@@ -609,11 +877,12 @@ class RLBilliard(gym.Env):
         for event in events
     )
 
-    # Reward logic: +1 if red in target pocket; 0 if both are pocketed or missed
-    if red_pocketed_target and not white_pocketed:
-      reward = 1.0
-    else:
-      reward = 0.0
+    # Reward logic: +1 if red in target pocket; -5 if white is pocketed; else 0
+    reward = -5.0 if white_pocketed else (1.0 if red_pocketed_target else 0.0)
+
+    norm_speed = (v0 - self.min_cue_speed) / (self.max_cue_speed - self.min_cue_speed)
+    r_speed_penalty = -0.1 * (norm_speed ** 2)
+    reward += r_speed_penalty
 
     terminated = True  # Single-shot environment
     truncated = False
@@ -630,73 +899,59 @@ class RLBilliard(gym.Env):
     info["shot_counter"] = self.shot_counter
     info["current_curriculum_difficulty"] = self.current_curriculum_difficulty
     info["position_difficulty"] = self.calculate_position_difficulty()
+    info["cut_side"] = self.cut_side
+    info["target_pocket_id"] = self.target_pocket_id
+
+    # print observation, cut side, target pocket
+ 
+#    print(f"Observation: {observation}, Cut side: {self.cut_side}, Target pocket: {self.target_pocket_id}")
+
 
     if self.verbose:
-      print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward}, current_curriculum_difficulty={self.current_curriculum_difficulty}, position_difficulty={self.calculate_position_difficulty()}")
-
-    self.update_curriculum_difficulty()
+      if self.use_curriculum:
+        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward}, speed_penalty={r_speed_penalty}, current_curriculum_difficulty={self.current_curriculum_difficulty:.0f}, position_difficulty={self.calculate_position_difficulty():.0f}")
+      else:
+        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward}, speed_penalty={r_speed_penalty}, position_difficulty={self.calculate_position_difficulty():.0f}")
+    if self.use_curriculum:
+      self.update_curriculum_difficulty()
 
     return observation, reward, terminated, truncated, info
 
-  def visualize_balls(self, filename=None):
-    """
-    Visualizes the current ball positions on the table.
-    Delegates to the billiards_visualizer module.
-    
-    Args:
-        filename (str, optional): If provided, saves the image to this file.
-                                  Otherwise displays the plot.
-    """
-    visualize_balls(self, filename)
 
-  def generate_episode_dataset(self, num_episodes=1000, output_dir="episode_visualizations"):
+ 
+
+  def get_obs_pocket_relative_polar(self):
     """
-    Generates multiple episodes and creates visualizations for each.
-    Saves all images to a directory with difficulty scores.
+    Convert pocket-relative Cartesian coordinates to polar coordinates.
     
-    Args:
-        num_episodes (int): Number of episodes to generate (default: 1000)
-        output_dir (str): Directory name to store all visualizations
+    Angle is always arctan(y/x) in degrees.
+    
+    Returns:
+        dict: Dictionary with polar coordinates:
+              {
+                'red_radius': float (meters),
+                'red_angle': float (degrees),
+                'white_radius': float (meters),
+                'white_angle': float (degrees)
+              }
     """
-    import os
+    pocket_coords = self._get_obs_pocket_relative()
+    red_x, red_y, white_x, white_y = pocket_coords[0], pocket_coords[1], pocket_coords[2], pocket_coords[3]
     
-    # Create output directory if it doesn't exist
-    if not os.path.exists(output_dir):
-      os.makedirs(output_dir)
-      if self.verbose:
-        print(f"Created directory: {output_dir}")
+    # Calculate polar coordinates: radius and angle = arctan(y/x)
+    red_radius = np.sqrt(red_x**2 + red_y**2)
+    red_angle = np.rad2deg(np.arctan(red_y / red_x)) if red_x != 0 else 90.0
     
-    if self.verbose:
-      print(f"\nGenerating {num_episodes} episode visualizations...")
-      print(f"Saving to: {output_dir}/\n")
+    white_radius = np.sqrt(white_x**2 + white_y**2)
+    white_angle = np.rad2deg(np.arctan(white_y / white_x)) if white_x != 0 else 90.0
     
-    difficulties = []
-    
-    for episode in range(num_episodes):
-      # Reset environment for new episode
-      obs, info = self.reset()
-      
-      # Calculate difficulty for this episode
-      difficulty = self.calculate_position_difficulty()
-      difficulties.append(difficulty)
-      
-      # Generate filename with episode number and difficulty
-      filename = os.path.join(output_dir, f"episode_{episode:04d}_diff_{difficulty:05.1f}.png")
-      
-      # Save visualization
-      self.visualize_balls(filename)
-      
-      # Print progress every 100 episodes
-      if (episode + 1) % 100 == 0 and self.verbose:
-        print(f"  Generated {episode + 1}/{num_episodes} episodes")
-    
-    # Print summary statistics
-    if self.verbose:
-      print(f"\n✓ Successfully generated {num_episodes} episodes!")
-      print(f"  Average difficulty: {np.mean(difficulties):.1f}/100")
-      print(f"  Min difficulty: {np.min(difficulties):.1f}/100")
-      print(f"  Max difficulty: {np.max(difficulties):.1f}/100")
-      print(f"  All images saved to: {output_dir}/")
+    return {
+        'red_radius': red_radius,
+        'red_angle': red_angle,
+        'white_radius': white_radius,
+        'white_angle': white_angle
+    }
+
 
   def render(self):
     if self.shots:
@@ -707,21 +962,259 @@ class RLBilliard(gym.Env):
     elif self.shot is not None:
       pt.show(self.shot)
 
+  def find_valid_shot_angles(self, white_pos, red_pos, visualize=False):
+    """
+    Find valid shot angle for the top-left target pocket using mirror image geometry.
+    
+    For top-left pocket, the cue ball is first played to the RIGHT CUSHION.
+    Uses the principle that a shot bouncing off a vertical wall is equivalent
+    to shooting directly at the mirror image of the red ball reflected across that wall.
+    
+    Args:
+      white_pos: Tuple (x, y) for white ball position in meters
+      red_pos: Tuple (x, y) for red ball position in meters
+      visualize: Whether to plot the valid rays (default False)
+    
+    Returns:
+      Dictionary with angle for right cushion shot:
+      {
+        'right': {'phi': angle, 'cushion_point': (x, y), 'distance': d, 'valid': bool}
+      }
+    """
+    table_width = self.table.w
+    ball_radius = self.R
+    
+    print(f"\n{'='*80}")
+    print(f"Finding Valid Shot Angle (Top-Left Pocket → Right Cushion)")
+    print(f"{'='*80}")
+    print(f"White Ball: ({white_pos[0]:.4f}, {white_pos[1]:.4f})")
+    print(f"Red Ball:   ({red_pos[0]:.4f}, {red_pos[1]:.4f})")
+    
+    results = {'right': None}
+    
+    # --- RIGHT CUSHION (x=w) ---
+    # Mirror red ball across right wall: red' = (2*w - red_x, red_y)
+    red_mirrored_right = np.array([2 * table_width - red_pos[0], red_pos[1]])
+    white_np = np.array(white_pos)
+    
+    # Line from white to mirrored red intersects right wall at (w, y_intersect)
+    # At x=w: w = white_x + t*(red_mirrored_x - white_x)
+    if red_mirrored_right[0] != white_np[0]:  # Avoid division by zero
+      t_right = (table_width - white_np[0]) / (red_mirrored_right[0] - white_np[0])
+      if 0 < t_right < 1:  # Valid intersection
+        y_right = white_np[1] + t_right * (red_mirrored_right[1] - white_np[1])
+        if 0 <= y_right <= self.table.l:  # Within table bounds
+          cushion_point_right = np.array([table_width, y_right])
+          angle_right = np.rad2deg(np.arctan2(y_right - white_np[1], table_width - white_np[0]))
+          if angle_right < 0:
+            angle_right += 360
+          distance_right = np.linalg.norm(cushion_point_right - white_np)
+          
+          results['right'] = {
+              'phi': angle_right,
+              'cushion_point': tuple(cushion_point_right),
+              'distance': distance_right,
+              'valid': True,
+          }
+          print(f"\nRight Cushion Shot:")
+          print(f"  Angle (phi)         : {angle_right:.2f}°")
+          print(f"  Cushion Point       : ({cushion_point_right[0]:.4f}, {cushion_point_right[1]:.4f})")
+          print(f"  Distance to Cushion : {distance_right:.4f} m")
+    
+    if results['right'] is None:
+      results['right'] = {'phi': None, 'cushion_point': None, 'distance': None, 'valid': False}
+      print(f"\nRight Cushion Shot: NOT VALID")
+    
+    print(f"{'='*80}\n")
+    
+    # Visualization
+    if visualize:
+      self._visualize_mirror_angles(white_pos, red_pos, results)
+    
+    return results
 
-# --- Test Run ---
+  def calculate_cushion_shot_angle(self, white_pos, red_pos):
+    """
+    Calculate aim angle for a one-cushion shot using mirror geometry.
+    
+    For top-left target pocket, uses the RIGHT CUSHION via mirror geometry.
+    
+    Args:
+      white_pos: Tuple (x, y) for white ball position in meters
+      red_pos: Tuple (x, y) for red ball position in meters
+    
+    Returns:
+      Dictionary with shot information:
+      {
+        'aim_angle_deg': calculated angle,
+        'cushion': 'right',
+        'cushion_point': (x, y),
+        'distance': distance to cushion,
+        'valid': True/False
+      }
+    """
+    print(f"\n{'='*80}")
+    print(f"Calculating One-Cushion Shot Angle")
+    print(f"{'='*80}")
+    print(f"Target Pocket: {self.target_pocket_id.upper()}")
+    print(f"White Ball: ({white_pos[0]:.4f}, {white_pos[1]:.4f})")
+    print(f"Red Ball:   ({red_pos[0]:.4f}, {red_pos[1]:.4f})")
+    
+    # Get valid angle for right cushion shot
+    results = self.find_valid_shot_angles(white_pos, red_pos, visualize=False)
+    
+    # Check if right cushion shot is valid
+    right_valid = results['right']['valid']
+    
+    if not right_valid:
+      print("ERROR: Right cushion shot is not valid!")
+      return {
+          'aim_angle_deg': self.aim_angle_deg,
+          'cushion': 'right',
+          'cushion_point': None,
+          'distance': None,
+          'valid': False,
+      }
+    
+    # Use right cushion shot
+    chosen_cushion = 'right'
+    chosen_angle = results[chosen_cushion]['phi']
+    cushion_info = results[chosen_cushion]
+    
+    # Update self.aim_angle_deg
+    self.aim_angle_deg = chosen_angle
+    
+    print(f"\nChosen Cushion: {chosen_cushion.upper()}")
+    print(f"  Aim Angle (phi)     : {chosen_angle:.2f}°")
+    print(f"  Cushion Point       : ({cushion_info['cushion_point'][0]:.4f}, {cushion_info['cushion_point'][1]:.4f})")
+    print(f"  Distance to Cushion : {cushion_info['distance']:.4f} m")
+    print(f"{'='*80}\n")
+    
+    return {
+        'aim_angle_deg': chosen_angle,
+        'cushion': chosen_cushion,
+        'cushion_point': cushion_info['cushion_point'],
+        'distance': cushion_info['distance'],
+        'valid': True,
+    }
+
+  def _visualize_mirror_angles(self, white_pos, red_pos, results):
+    """Visualize the mirror geometry and valid shot angles."""
+    try:
+      import matplotlib.pyplot as plt
+      import matplotlib.patches as patches
+    except ImportError:
+      print("matplotlib not available, skipping visualization")
+      return
+    
+    fig, ax = plt.subplots(1, 1, figsize=(6, 8))
+    
+    # Draw table
+    table_rect = patches.Rectangle((0, 0), self.table.w, self.table.l, 
+                                   linewidth=2, edgecolor='black', facecolor='lightgreen', alpha=0.3)
+    ax.add_patch(table_rect)
+    
+    white_np = np.array(white_pos)
+    red_np = np.array(red_pos)
+    
+    # Draw mirrored red balls (faded)
+    red_mirrored_left = np.array([-red_pos[0], red_pos[1]])
+    red_mirrored_right = np.array([2*self.table.w - red_pos[0], red_pos[1]])
+    
+    left_circle = patches.Circle(red_mirrored_left, self.R, color='red', ec='red', linewidth=1, alpha=0.2, linestyle='--')
+    ax.add_patch(left_circle)
+    ax.text(red_mirrored_left[0], red_mirrored_left[1]-0.08, "R'", ha='center', va='center', fontsize=9, alpha=0.5)
+    
+    right_circle = patches.Circle(red_mirrored_right, self.R, color='red', ec='red', linewidth=1, alpha=0.2, linestyle='--')
+    ax.add_patch(right_circle)
+    ax.text(red_mirrored_right[0], red_mirrored_right[1]-0.08, "R'", ha='center', va='center', fontsize=9, alpha=0.5)
+    
+    # Draw lines from white to mirrored red balls
+    ax.plot([white_np[0], red_mirrored_left[0]], [white_np[1], red_mirrored_left[1]], 
+           'r-', linewidth=1, alpha=0.3, label="Mirror lines")
+    ax.plot([white_np[0], red_mirrored_right[0]], [white_np[1], red_mirrored_right[1]], 
+           'b-', linewidth=1, alpha=0.3)
+    
+    # Draw left cushion shot
+    if results['left']['valid']:
+      cushion_point = np.array(results['left']['cushion_point'])
+      ax.plot([white_np[0], cushion_point[0]], [white_np[1], cushion_point[1]], 
+             'r-', linewidth=2.5, alpha=0.8, label=f"Left: {results['left']['phi']:.1f}°")
+      ax.plot(cushion_point[0], cushion_point[1], 'ro', markersize=6, alpha=0.8)
+      
+      # Draw reflected path to red ball
+      ax.plot([cushion_point[0], red_np[0]], [cushion_point[1], red_np[1]], 
+             'r--', linewidth=2, alpha=0.6)
+    
+    # Draw right cushion shot
+    if results['right']['valid']:
+      cushion_point = np.array(results['right']['cushion_point'])
+      ax.plot([white_np[0], cushion_point[0]], [white_np[1], cushion_point[1]], 
+             'b-', linewidth=2.5, alpha=0.8, label=f"Right: {results['right']['phi']:.1f}°")
+      ax.plot(cushion_point[0], cushion_point[1], 'bo', markersize=6, alpha=0.8)
+      
+      # Draw reflected path to red ball
+      ax.plot([cushion_point[0], red_np[0]], [cushion_point[1], red_np[1]], 
+             'b--', linewidth=2, alpha=0.6)
+    
+    # Draw white ball
+    white_circle = patches.Circle(white_pos, self.R, color='white', ec='black', linewidth=2, zorder=5)
+    ax.add_patch(white_circle)
+    ax.text(white_pos[0], white_pos[1]-0.08, 'W', ha='center', va='center', fontsize=10, weight='bold')
+    
+    # Draw red ball
+    red_circle = patches.Circle(red_pos, self.R, color='red', ec='darkred', linewidth=2, zorder=5)
+    ax.add_patch(red_circle)
+    ax.text(red_pos[0], red_pos[1]-0.08, 'R', ha='center', va='center', fontsize=10, weight='bold')
+    
+    # Draw cushion walls with emphasis
+    ax.axvline(x=0, color='black', linewidth=3, alpha=0.5, label='Cushions')
+    ax.axvline(x=self.table.w, color='black', linewidth=3, alpha=0.5)
+    
+    # Labels and formatting
+    ax.set_xlim(-0.3, self.table.w + 0.3)
+    ax.set_ylim(-0.1, self.table.l + 0.1)
+    ax.set_aspect('equal')
+    ax.set_xlabel('X (m)', fontsize=10)
+    ax.set_ylabel('Y (m)', fontsize=10)
+    ax.set_title(f'Valid Shot Angles (Mirror Geometry)\nLeft & Right Cushion Shots', fontsize=12, weight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right', fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig('valid_shot_angles.png', dpi=150, bbox_inches='tight')
+    print(f"Visualization saved to 'valid_shot_angles.png'")
+    plt.show()
+
+# --- Demo Usage ---
 if __name__ == "__main__":
-  from billiards_tests import test_initial, test_difficulty, test_position_difficulty, test_calculate_position_difficulty_with_visualization, test_transform_obs_for_rt_pocket, test_reset_with_positions
+  """Simple demonstration of the RLBilliard_pocket_invariant environment."""
   
-  env = RLBilliard(use_curriculum=False, fixed_difficulty=100, target_pocket_id='lt', verbose=True)
+  # Create environment
+  env = RLBilliard_pocket_invariant(
+      use_curriculum=False,
+      fixed_difficulty=100,
+      target_pocket_id='lc',
+      verbose=True
+  )
 
-  env.generate_episode_dataset(num_episodes=1000, output_dir="episode_visualizations")
   
-  # Test reset_with_positions with specific ball coordinates
-#  test_reset_with_positions(
-#      red_pos=(0.5, 1.5),
-#      white_pos=(0.5, 0.9),
-#      action=np.array([0.0, 0.5], dtype=np.float32),
-#      verbose=True
-#  )
-
-
+  
+  # Initialize environment
+  print("Resetting environment...")
+  obs, info = env.reset()
+  print(f"Initial observation shape: {obs.shape}")
+  
+  # Execute a sample step
+  print("\nExecuting sample action...")
+  action = env.action_space.sample()
+  action[0] = 0.0
+  obs, reward, terminated, truncated, info = env.step(action)
+  print(f"Action: {action}")
+  print(f"Reward: {reward}")
+  print(f"Terminated: {terminated}, Truncated: {truncated}")
+  print(f"Info: {info}")
+  
+  # Render the shot
+  print("\nRendering shot...")
+  env.render()
