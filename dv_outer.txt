@@ -1,0 +1,19 @@
+# DQN Hyperparameters for RLBilliard_outer
+# Learning Rate
+learning_rate = 1e-4
+# Replay Buffer Size
+buffer_size = 50000
+# Batch Size for Q-network updates
+batch_size = 32
+# Discount factor
+gamma = 0.99
+# Soft update coefficient (tau=1.0 means hard update)
+tau = 1.0
+# Exploration fraction (fraction of total training spent exploring)
+exploration_fraction = 0.1
+# Initial exploration rate (epsilon)
+exploration_initial_eps = 0.1
+# Final exploration rate
+exploration_final_eps = 0.01
+# Total timesteps for training
+total_timesteps = 500000
