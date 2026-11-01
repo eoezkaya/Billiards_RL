@@ -8,7 +8,7 @@ from stable_baselines3 import PPO
 from RLEnv import RLBilliard
 
 TARGET_POCKET_ID = 'lc'
-DIFFICULTY = 30
+DIFFICULTY = 50
 
 def main():
     model_path = "./models/ppo_billiards/ppo_billiards_final.zip"

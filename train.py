@@ -350,7 +350,7 @@ def main():
         verbose=1,
     )
 
-  total_timesteps = int(hp["total_timesteps"])
+  total_timesteps = int(config["total_timesteps"])
   print(
       f"\nTraining {algorithm} with {num_envs} fixed environments for"
       f" {total_timesteps} timesteps..."
