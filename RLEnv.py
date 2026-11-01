@@ -24,7 +24,7 @@ class RLBilliard(gym.Env):
                curriculum_initial_difficulty=20.0, curriculum_counter_1=20_000,
                curriculum_final_difficulty=80.0, curriculum_counter_2=100_000,
                target_pocket_id='lt',
-               training_corner_pocket=True,
+               training_corner_pocket=True, training_center_pocket=False, inference=False,
                verbose=True):
     super().__init__()
 
@@ -43,6 +43,8 @@ class RLBilliard(gym.Env):
     self.white_y_range = white_y_range
     self.play_cushion = False
     self.train_corner_pocket = training_corner_pocket
+    self.train_center_pocket = training_center_pocket
+    self.inference = inference
 
     # Target pocket: can be 'lb', 'lt', 'rb', 'rt', 'ml', or 'mr'
     if target_pocket_id not in ['lb', 'lt', 'rb', 'rt', 'lc', 'rc']:
@@ -321,15 +323,26 @@ class RLBilliard(gym.Env):
     red_y = self.np_random.uniform(self.red_y_range[0], self.red_y_range[1])
     self.balls["red"].state.rvw[0] = [red_x, red_y, self.R]
 
-    white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
 
     if self.train_corner_pocket:
+      white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
       while True:
           white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
           if white_y < red_y:
             break
     else:
           white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
+
+    if self.train_center_pocket:
+      white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
+      while True:
+          white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
+          if white_x > red_x:
+            break
+
+    if self.inference:
+        white_x = self.np_random.uniform(self.white_x_range[0], self.white_x_range[1])
+        white_y = self.np_random.uniform(self.white_y_range[0], self.white_y_range[1])
 
     self.balls["white"].state.rvw[0] = [white_x, white_y, self.R]
 
@@ -909,9 +922,9 @@ class RLBilliard(gym.Env):
 
     if self.verbose:
       if self.use_curriculum:
-        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward}, speed_penalty={r_speed_penalty}, current_curriculum_difficulty={self.current_curriculum_difficulty:.0f}, position_difficulty={self.calculate_position_difficulty():.0f}")
+        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward:.3f}, speed_penalty={r_speed_penalty:.3f}, current_curriculum_difficulty={self.current_curriculum_difficulty:.0f}, position_difficulty={self.calculate_position_difficulty():.0f}")
       else:
-        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward}, speed_penalty={r_speed_penalty}, position_difficulty={self.calculate_position_difficulty():.0f}")
+        print(f"Shot {self.shot_counter}: red_pocketed_target={red_pocketed_target}, white_pocketed={white_pocketed}, reward={reward:.3f}, speed_penalty={r_speed_penalty:.3f}, position_difficulty={self.calculate_position_difficulty():.0f}")
     if self.use_curriculum:
       self.update_curriculum_difficulty()
 
@@ -1194,6 +1207,7 @@ if __name__ == "__main__":
   env = RLBilliard(
       use_curriculum=False,
       fixed_difficulty=100,
+      training_center_pocket=True,
       target_pocket_id='lc',
       verbose=True
   )
@@ -1211,7 +1225,7 @@ if __name__ == "__main__":
   action[0] = 0.0
   obs, reward, terminated, truncated, info = env.step(action)
   print(f"Action: {action}")
-  print(f"Reward: {reward}")
+  print(f"Reward: {reward:.3f}")
   print(f"Terminated: {terminated}, Truncated: {truncated}")
   print(f"Info: {info}")
   

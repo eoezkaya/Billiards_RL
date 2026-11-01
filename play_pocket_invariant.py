@@ -5,9 +5,9 @@ import time
 import numpy as np
 from stable_baselines3 import PPO
 
-from RLEnv_pocket_invariant import RLBilliard
+from RLEnv import RLBilliard
 
-TARGET_POCKET_ID = 'lt'
+TARGET_POCKET_ID = 'lc'
 DIFFICULTY = 30
 
 def main():
@@ -34,7 +34,9 @@ def main():
         white_y_range = white_y_range,
         use_curriculum=False,
         fixed_difficulty=DIFFICULTY,
-        target_pocket_id=TARGET_POCKET_ID
+        target_pocket_id=TARGET_POCKET_ID,
+        inference=True
+
     )
 
     total_episodes = 20

@@ -25,6 +25,13 @@ _PARAM_ORDER = [
     "ent_coef",
 ]
 
+train_corner_pocket = False
+train_center_pocket = True
+
+if train_corner_pocket:
+    target_pocket_id = "lt"
+elif train_center_pocket:
+    target_pocket_id = "lc"
 
 def _coerce_value(value_str: str):
   value_str = value_str.strip()
@@ -151,6 +158,7 @@ def main():
   
   print(f"\n========================================")
   print(f"Training {algorithm} Billiards RL Agent")
+  print(f"Target pocket: {target_pocket_id}")
   print(f"========================================\n")
   
   # Load algorithmic hyperparameters from dv.txt
@@ -181,13 +189,16 @@ def main():
       seed=42,
       env_kwargs={
           "use_curriculum": False,
-          "fixed_difficulty": 60,
-          "target_pocket_id": "lt",
+          "fixed_difficulty": 30,
+          "target_pocket_id": target_pocket_id,
           "verbose": True,
           "red_x_range": red_x_range,
           "red_y_range": red_y_range,
           "white_x_range": white_x_range,
           "white_y_range": white_y_range,
+          "training_corner_pocket": train_corner_pocket,
+          "training_center_pocket": train_center_pocket,
+
       },
       vec_env_cls=SubprocVecEnv,
       vec_env_kwargs={
