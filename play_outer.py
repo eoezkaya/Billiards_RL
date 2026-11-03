@@ -25,7 +25,7 @@ def play_game(env, model, num_episodes=20, render=True):
   
   total_rewards = 0
   successful_shots = 0
-  pocket_selections = {'lt': 0, 'rt': 0, 'lb': 0, 'rb': 0}
+  pocket_selections = {'lt': 0, 'rt': 0, 'lb': 0, 'rb': 0, 'lc': 0, 'rc': 0}
   episode_rewards = []
   
   for episode in range(1, num_episodes + 1):
@@ -52,6 +52,8 @@ def play_game(env, model, num_episodes=20, render=True):
         "top right": "rt",
         "bottom left": "lb",
         "bottom right": "rb",
+        "center left": "lc",
+        "center right": "rc",
     }
     
     if target_pocket in action_to_pocket:
@@ -81,6 +83,8 @@ def play_game(env, model, num_episodes=20, render=True):
   rt_percentage = (pocket_selections['rt'] / num_episodes) * 100
   lb_percentage = (pocket_selections['lb'] / num_episodes) * 100
   rb_percentage = (pocket_selections['rb'] / num_episodes) * 100
+  lc_percentage = (pocket_selections['lc'] / num_episodes) * 100
+  rc_percentage = (pocket_selections['rc'] / num_episodes) * 100
   
   # Print summary
   print(f"\n{'='*70}")
@@ -95,6 +99,8 @@ def play_game(env, model, num_episodes=20, render=True):
   print(f"    Top-Right (rt):    {pocket_selections['rt']:2d} ({rt_percentage:5.1f}%)")
   print(f"    Bottom-Left (lb):  {pocket_selections['lb']:2d} ({lb_percentage:5.1f}%)")
   print(f"    Bottom-Right (rb): {pocket_selections['rb']:2d} ({rb_percentage:5.1f}%)")
+  print(f"    Center-Left (lc):  {pocket_selections['lc']:2d} ({lc_percentage:5.1f}%)")
+  print(f"    Center-Right (rc): {pocket_selections['rc']:2d} ({rc_percentage:5.1f}%)")
   print(f"{'='*70}\n")
 
 
@@ -121,7 +127,7 @@ def main():
   print(f"✓ Environment initialized\n")
   
   # Play the game
-  play_game(env, model, num_episodes=20, render=True)
+  play_game(env, model, num_episodes=50, render=True)
   
   # Close environment
   env.close()
