@@ -61,10 +61,13 @@ class RLBilliard(gym.Env):
     # Action Space:
     # Action[0] = control_angle_magnitude in [0, 6] degrees (from -1 to 1 normalized)
     # Action[1] = initial cue velocity V0 in [0.5, 3.0] m/s (from -1 to 1 normalized)
+    # Action[2] = additional control parameter (e.g., spin) in [-1, 1] normalized
+    # Action[3] = additional control parameter (e.g., spin) in [-1, 1] normalized
+    
     self.action_space = spaces.Box(
         low=-1.0,
         high=1.0,
-        shape=(2,),
+        shape=(4,),
         dtype=np.float32,
     )
     # Observation Space: (Matches normalized output in _get_obs)
@@ -816,6 +819,8 @@ class RLBilliard(gym.Env):
 
     raw_angle = np.clip(action[0], -1.0, 1.0)
     raw_velocity = np.clip(action[1], -1.0, 1.0)
+    raw_a_value = np.clip(action[2], -1.0, 1.0)
+    raw_b_value = np.clip(action[3], -1.0, 1.0)
 
     # Get current ball positions
     red_pos = self.balls["red"].state.rvw[0][:2]
@@ -826,6 +831,10 @@ class RLBilliard(gym.Env):
 
     # Map raw_angle [-1, 1] -> [0.0, theta_max_deg]
     angle_perturbation = (raw_angle + 1.0) / 2.0 * theta_max_deg
+
+    # map raw_a and raw_b to [-0.4, 0.4] range
+    a = (raw_a_value + 1.0) / 2.0 * 0.8 - 0.4
+    b = (raw_b_value + 1.0) / 2.0 * 0.8 - 0.4
 
     if self.linear_velocity:
         # Map raw_velocity [-1, 1] -> [self.min_cue_speed, self.max_cue_speed]
@@ -859,7 +868,7 @@ class RLBilliard(gym.Env):
     self.shot = pt.System(
         table=self.table, balls=copy.deepcopy(self.balls), cue=cue
     )
-    self.shot.cue.set_state(v0, phi=final_phi, theta=0.0, a=0.0, b=0.0)
+    self.shot.cue.set_state(v0, phi=final_phi, theta=0.0, a=a, b=b)
     self.shot.strike()
     self.shot_counter += 1  # Increment shot counter
 

@@ -172,7 +172,7 @@ if __name__ == "__main__":
     from RLEnv9Ball import RLBilliard9Ball
     
     print("Initializing billiards environment...")
-    env = RLBilliard9Ball(use_curriculum=False, verbose=False, fixed_difficulty=100)
+    env = RLBilliard9Ball()
     
     print("Resetting environment...")
     obs, info = env.reset()

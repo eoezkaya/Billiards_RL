@@ -12,8 +12,8 @@ white_y_range_min = 0.1
 white_y_range_max = 1.95
 
 # Pocket configuration
-train_corner_pocket = False
-train_center_pocket = True
+train_corner_pocket = True
+train_center_pocket = False
 
 # RL Algorithm (PPO or SAC)
 method = PPO
@@ -26,7 +26,7 @@ out_file = negative_success_ratio
 final_model_path = ./models/ppo_billiards/
 
 # Training parameters
-fixed_difficulty = 30
+fixed_difficulty = 60
 total_timesteps = 2000000
 
 # Evaluation parameters

@@ -7,7 +7,7 @@ from stable_baselines3 import PPO
 
 from RLEnv import RLBilliard
 
-TARGET_POCKET_ID = 'lc'
+TARGET_POCKET_ID = 'lt'
 DIFFICULTY = 50
 
 def main():
